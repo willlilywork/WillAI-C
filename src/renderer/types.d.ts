@@ -1,29 +1,80 @@
 export {};
+
 declare global {
   type Provider = 'chatgpt' | 'claude' | 'deepseek';
+
   interface WorkingNode {
-    id: string; parentId: string | null; content: string; initialContent: string;
-    position: number; provenance: 'captured' | 'human-edited' | 'human-created' | string;
-    includeInModelContext: boolean; createdAt: string; updatedAt: string; deletedAt: string | null;
+    id: string;
+    parentId: string | null;
+    content: string;
+    initialContent: string;
+    position: number;
+    provenance: 'captured' | 'human-edited' | 'human-created' | string;
+    includeInModelContext: boolean;
+    createdAt: string;
+    updatedAt: string;
+    deletedAt: string | null;
   }
+
   interface OriginalResponse {
-    id: string; sourceMessageId: string | null; originalContent: string; capturedAt: string; nodes: WorkingNode[];
+    id: string;
+    sourceMessageId: string | null;
+    originalContent: string;
+    capturedAt: string;
+    nodes: WorkingNode[];
   }
+
   interface Conversation {
-    id: string; provider: Provider; title: string; sourceUrl: string; createdAt: string; updatedAt: string;
-    responses: OriginalResponse[]; sharedContextPreview: string;
+    id: string;
+    provider: Provider;
+    title: string;
+    sourceUrl: string;
+    createdAt: string;
+    updatedAt: string;
+    responses: OriginalResponse[];
+    sharedContextPreview: string;
   }
+
   interface WillAISnapshot { conversations: Conversation[]; }
-  interface BridgeInfo { host: string; port: number; token: string; running: boolean; }
+
+  interface BrowserTab {
+    id: string;
+    title: string;
+    url: string;
+    isLoading: boolean;
+    canGoBack: boolean;
+    canGoForward: boolean;
+    favicon: string;
+    provider: Provider | null;
+  }
+
+  interface BrowserState {
+    tabs: BrowserTab[];
+    activeTabId: string | null;
+  }
+
   interface Window {
     willai: {
-      getSnapshot(): Promise<WillAISnapshot>; getBridgeInfo(): Promise<BridgeInfo>;
-      copyText(text: string): Promise<{ok: boolean}>; openSourceUrl(url: string): Promise<{ok: boolean}>;
+      getSnapshot(): Promise<WillAISnapshot>;
+      getBrowserState(): Promise<BrowserState>;
+      createTab(url?: string): Promise<string>;
+      activateTab(tabId: string): Promise<BrowserState>;
+      closeTab(tabId: string): Promise<BrowserState>;
+      navigate(value: string): Promise<void>;
+      goBack(): Promise<void>;
+      goForward(): Promise<void>;
+      reload(): Promise<void>;
+      setBrowserBounds(bounds: { x: number; y: number; width: number; height: number }): Promise<void>;
+      insertContext(conversationId: string): Promise<{ok: boolean; error?: string}>;
       updateNode(nodeId: string, content: string): Promise<{ok: boolean}>;
       setNodeContext(nodeId: string, enabled: boolean): Promise<{ok: boolean}>;
       createChildNode(responseId: string, parentId: string | null): Promise<{nodeId: string}>;
       deleteNode(nodeId: string): Promise<{ok: boolean}>;
+      copyText(text: string): Promise<{ok: boolean}>;
+      onBrowserState(callback: (state: BrowserState) => void): () => void;
       onCapture(callback: (payload: {conversationId: string; responseId: string}) => void): () => void;
+      onSnapshotChanged(callback: () => void): () => void;
+      onContextInsertResult(callback: (result: {ok: boolean; error?: string}) => void): () => void;
     };
   }
 }

@@ -1,57 +1,139 @@
 const path = require('node:path');
-const { app, BrowserWindow, ipcMain, clipboard, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, clipboard } = require('electron');
 const { LocalStore } = require('./store.cjs');
-const { createBridge } = require('./bridge.cjs');
+const { BrowserController } = require('./browser.cjs');
 
 let mainWindow;
 let store;
-let bridge;
+let browser;
 
-function registerIpc() {
-  ipcMain.handle('willai:get-snapshot', () => store.getSnapshot());
-  ipcMain.handle('willai:get-bridge-info', () => {
-    const { host, port, token } = store.getBridgeInfo();
-    return { host, port, token, running: Boolean(bridge) };
+function assertTrustedRenderer(event) {
+  if (!mainWindow || event.sender.id !== mainWindow.webContents.id) {
+    throw new Error('Untrusted renderer IPC sender.');
+  }
+}
+
+function publishBrowserState() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('willai:browser-state', browser?.getState() || { tabs: [], activeTabId: null });
+  }
+}
+
+function registerRendererIpc() {
+  ipcMain.handle('willai:get-snapshot', (event) => {
+    assertTrustedRenderer(event);
+    return store.getSnapshot();
   });
-  ipcMain.handle('willai:copy-text', (_event, value) => {
+  ipcMain.handle('willai:get-browser-state', (event) => {
+    assertTrustedRenderer(event);
+    return browser?.getState() || { tabs: [], activeTabId: null };
+  });
+  ipcMain.handle('willai:create-tab', (event, url) => {
+    assertTrustedRenderer(event);
+    return browser.createTab(url || 'https://chatgpt.com/');
+  });
+  ipcMain.handle('willai:activate-tab', (event, tabId) => {
+    assertTrustedRenderer(event);
+    browser.activateTab(String(tabId));
+    return browser.getState();
+  });
+  ipcMain.handle('willai:close-tab', (event, tabId) => {
+    assertTrustedRenderer(event);
+    browser.closeTab(String(tabId));
+    return browser.getState();
+  });
+  ipcMain.handle('willai:navigate', (event, value) => {
+    assertTrustedRenderer(event);
+    return browser.navigate(String(value || ''));
+  });
+  ipcMain.handle('willai:go-back', (event) => {
+    assertTrustedRenderer(event);
+    browser.goBack();
+  });
+  ipcMain.handle('willai:go-forward', (event) => {
+    assertTrustedRenderer(event);
+    browser.goForward();
+  });
+  ipcMain.handle('willai:reload', (event) => {
+    assertTrustedRenderer(event);
+    browser.reload();
+  });
+  ipcMain.handle('willai:set-browser-bounds', (event, bounds) => {
+    assertTrustedRenderer(event);
+    browser.setContentBounds(bounds || {});
+  });
+  ipcMain.handle('willai:insert-context', (event, conversationId) => {
+    assertTrustedRenderer(event);
+    const conversation = store.getSnapshot().conversations.find((item) => item.id === conversationId);
+    if (!conversation?.sharedContextPreview) return { ok: false, error: 'No model context is selected for this conversation.' };
+    return browser.insertContext(conversation.sharedContextPreview);
+  });
+  ipcMain.handle('willai:update-node', (event, nodeId, nodeContent) => {
+    assertTrustedRenderer(event);
+    return store.updateNode(String(nodeId), String(nodeContent ?? ''));
+  });
+  ipcMain.handle('willai:set-node-context', (event, nodeId, enabled) => {
+    assertTrustedRenderer(event);
+    return store.setNodeContext(String(nodeId), Boolean(enabled));
+  });
+  ipcMain.handle('willai:create-child-node', (event, responseId, parentId) => {
+    assertTrustedRenderer(event);
+    return store.createChildNode(String(responseId), parentId ? String(parentId) : null);
+  });
+  ipcMain.handle('willai:delete-node', (event, nodeId) => {
+    assertTrustedRenderer(event);
+    return store.deleteNode(String(nodeId));
+  });
+  ipcMain.handle('willai:copy-text', (event, value) => {
+    assertTrustedRenderer(event);
     clipboard.writeText(String(value ?? ''));
     return { ok: true };
   });
-  ipcMain.handle('willai:open-source', async (_event, value) => {
-    let url;
-    try { url = new URL(String(value)); } catch { throw new Error('Invalid source URL.'); }
-    const host = url.hostname.toLowerCase();
-    const allowed = host === 'chatgpt.com' || host === 'chat.openai.com' || host === 'claude.ai' || host === 'deepseek.com' || host.endsWith('.deepseek.com');
-    if (url.protocol !== 'https:' || !allowed) throw new Error('Unsupported source website.');
-    await shell.openExternal(url.toString());
-    return { ok: true };
+
+  ipcMain.on('willai:provider-response', (event, payload) => {
+    if (!browser) return;
+    const accepted = browser.handleProviderCapture(event.sender, payload || {});
+    if (!accepted) return;
+    try {
+      const result = store.capture({
+        ...payload,
+        sourceUrl: event.sender.getURL(),
+        title: event.sender.getTitle() || payload.title,
+      });
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('willai:capture-received', result);
+        mainWindow.webContents.send('willai:snapshot-changed');
+      }
+    } catch (error) {
+      console.warn('WillAI-C capture was rejected:', error.message);
+    }
   });
-  ipcMain.handle('willai:update-node', (_event, nodeId, content) => store.updateNode(nodeId, content));
-  ipcMain.handle('willai:set-node-context', (_event, nodeId, enabled) => store.setNodeContext(nodeId, enabled));
-  ipcMain.handle('willai:create-child-node', (_event, responseId, parentId) => store.createChildNode(responseId, parentId));
-  ipcMain.handle('willai:delete-node', (_event, nodeId) => store.deleteNode(nodeId));
+
+  ipcMain.on('willai:context-insert-result', (_event, result) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('willai:context-insert-result', result);
+  });
 }
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1480,
-    height: 940,
-    minWidth: 1050,
+    width: 1560,
+    height: 980,
+    minWidth: 1120,
     minHeight: 700,
-    backgroundColor: '#111315',
+    backgroundColor: '#101316',
     title: 'WillAI-C',
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
     },
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https://')) shell.openExternal(url);
-    return { action: 'deny' };
-  });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  browser = new BrowserController({ window: mainWindow, onState: publishBrowserState });
 
   if (!app.isPackaged && process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -59,38 +141,39 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'));
   }
 
-  mainWindow›ÛŠ	ØÛÜÙY	Ë
+  mainWindow.webContents.once('did-finish-load', async () => {
+    try {
+      await browser.createTab('https://chatgpt.com/');
+      publishBrowserState();
+    } catch (error) {
+      console.error('Could not open the first browser tab:', error.message);
+    }
+  });
 
-HOˆÈXZ[•Ú[™ÝÈH[ÈJNÂŸB‚˜\Ú[”™XYJ
-K[Š\Þ[˜È
+  mainWindow.on('resize', () => browser?.applyBounds());
+  mainWindow.on('maximize', () => browser?.applyBounds());
+  mainWindow.on('unmaximize', () => browser?.applyBounds());
+  mainWindow.on('closed', () => {
+    browser?.destroy();
+    browser = null;
+    mainWindow = null;
+  });
+}
 
-HOˆÂˆÝÜ™HH™]ÈØØ[ÝÜ™J\™Ù]]
-	Ý\Ù\‘]IÊJNÂˆ™YÚ\Ý\’\Ê
-NÂˆœšYÙHHÜ™X]PœšYÙJÂˆÝÜ™KˆÛØ\\™Nˆ
-™\Ý[
-HOˆÂˆYˆ
-XZ[•Ú[™ÝÈ	‰ˆ[XZ[•Ú[™ÝËš\Ñ\Ý›ÞYY
+app.whenReady().then(() => {
+  app.setName('WillAI-C');
+  store = new LocalStore(app.getPath('userData'));
+  registerRendererIpc();
+  createWindow();
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
 
-JHÂˆXZ[•Ú[™ÝËÙXÛÛ[ËœÙ[™
-	ÝÚ[ZN˜Ø\\™K\™XÙZ]™Y	Ë™\Ý[
-NÂˆBˆKˆJNÂ‚ˆžHÂˆ]ØZ]œšYÙKœÝ\
+app.on('before-quit', () => {
+  browser?.destroy();
+});
 
-NÂˆHØ]Ú
-\œ›ÜŠHÂˆÛÛœÛÛK™\œ›ÜŠÚ[RKPÈØØ[œšYÙHÛÝ[›ÝÝ\ÛˆÜ	ØœšYÙKœÜN˜\œ›Ü‹›Y\ÜØYÙJNÂˆœšYÙHH[ÂˆB‚ˆÜ™X]UÚ[™ÝÊ
-NÂˆ\›ÛŠ	ØXÝ]˜]IË
-
-HOˆÂˆYˆ
-œ›ÝÜÙ\•Ú[™ÝË™Ù][Ú[™ÝÜÊ
-K›[™ÝOOH
-HÜ™X]UÚ[™ÝÊ
-NÂˆJNÂŸJNÂ‚˜\›ÛŠ	Ø™Y›Ü™K\]Z]	Ë
-
-HOˆÂˆYˆ
-œšYÙJHœšYÙKœÝÜ
-
-NÂŸJNÂ‚˜\›ÛŠ	ÝÚ[™ÝËX[XÛÜÙY	Ë
-
-HOˆÂˆYˆ
-›ØÙ\ÜËœ]›Ü›HOOH	Ù\Ú[‰ÊH\œ]Z]
-
-NÂŸJNÂ
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});

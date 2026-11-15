@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const providerLabels: Record<Provider, string> = {
   chatgpt: 'ChatGPT',
@@ -6,302 +6,341 @@ const providerLabels: Record<Provider, string> = {
   deepseek: 'DeepSeek',
 };
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+const providerUrls: Record<Provider, string> = {
+  chatgpt: 'https://chatgpt.com/',
+  claude: 'https://claude.ai/new',
+  deepseek: 'https://chat.deepseek.com/',
+};
+
+function sourceKey(value: string) {
+  try {
+    const url = new URL(value);
+    return `${url.origin}${url.pathname}`.replace(/\/$/, '');
+  } catch {
+    return value;
+  }
 }
 
 function App() {
+  const [browserState, setBrowserState] = useState<BrowserState>({ tabs: [], activeTabId: null });
   const [snapshot, setSnapshot] = useState<WillAISnapshot>({ conversations: [] });
-  const [bridge, setBridge] = useState<BridgeInfo | null>(null);
+  const [address, setAddress] = useState('');
+  const [showWorkPanel, setShowWorkPanel] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [bridgeDetailsOpen, setBridgeDetailsOpen] = useState(false);
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const addressRef = useRef<HTMLInputElement>(null);
 
-  const refresh = useCallback(async () => {
-    const [nextSnapshot, nextBridge] = await Promise.all([
-      window.willai.getSnapshot(),
-      window.willai.getBridgeInfo(),
-    ]);
-    setSnapshot(nextSnapshot);
-    setBridge(nextBridge);
-    setActiveConversationId((current) =>
-      current && nextSnapshot.conversations.some((conversation) => conversation.id === current)
-        ? current
-        : nextSnapshot.conversations[0]?.id ?? null,
-    );
-  }, []);
-
-  useEffect(() => {
-    let mounted = true;
-    Promise.all([window.willai.getSnapshot(), window.willai.getBridgeInfo()])
-      .then(([nextSnapshot, nextBridge]) => {
-        if (!mounted) return;
-        setSnapshot(nextSnapshot);
-        setBridge(nextBridge);
-        setActiveConversationId(nextSnapshot.conversations[0]?.id ?? null);
-      })
-      .catch(() => setNotice('WillAI-C could not load its local workspace.'))
-      .finally(() => mounted && setLoading(false));
-
-    const unsubscribe = window.willai.onCapture((payload) => {
-      setActiveConversationId(payload.conversationId);
-      setNotice('A response was captured from your browser.');
-      refresh().catch(() => setNotice('The response was captured, but the workspace could not refresh.'));
-    });
-
-    return () => {
-      mounted = false;
-      unsubscribe();
-    };
-  }, [refresh]);
+  const activeTab = useMemo(
+    () => browserState.tabs.find((tab) => tab.id === browserState.activeTabId) ?? null,
+    [browserState],
+  );
 
   const activeConversation = useMemo(
     () => snapshot.conversations.find((conversation) => conversation.id === activeConversationId) ?? null,
     [snapshot.conversations, activeConversationId],
   );
 
-  async function copyContext() {
-    if (!activeConversation?.sharedContextPreview) return;
-    await window.willai.copyText(activeConversation.sharedContextPreview);
-    setNotice('Shared context copied to the clipboard.');
+  const refreshSnapshot = useCallback(async () => {
+    const next = await window.willai.getSnapshot();
+    setSnapshot(next);
+    setActiveConversationId((current) => {
+      if (current && next.conversations.some((item) => item.id === current)) return current;
+      return next.conversations[0]?.id ?? null;
+    });
+  }, []);
+
+  const updateBounds = useCallback(() => {
+    const rect = hostRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    void window.willai.setBrowserBounds({
+      x: rect.left,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height,
+    });
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([window.willai.getBrowserState(), window.willai.getSnapshot()])
+      .then(([nextBrowser, nextSnapshot]) => {
+        if (!alive) return;
+        setBrowserState(nextBrowser);
+        setSnapshot(nextSnapshot);
+        setActiveConversationId(nextSnapshot.conversations[0]?.id ?? null);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (alive) {
+          setNotice('WillAI-C could not initialise the browser workspace.');
+          setLoading(false);
+        }
+      });
+
+    const offBrowser = window.willai.onBrowserState((state) => {
+      setBrowserState(state);
+    });
+    const offCapture = window.willai.onCapture((result) => {
+      setActiveConversationId(result.conversationId);
+      setShowWorkPanel(true);
+      setNotice('A new response was captured into this workspace.');
+      refreshSnapshot().catch(() => setNotice('The response was captured, but the workspace did not refresh.'));
+    });
+    const offSnapshot = window.willai.onSnapshotChanged(() => {
+      refreshSnapshot().catch(() => {});
+    });
+    const offInsert = window.willai.onContextInsertResult((result) => {
+      setNotice(result.ok ? 'Shared context inserted into the prompt composer. Review it before sending.' : result.error || 'Could not insert shared context.');
+    });
+
+    return () => {
+      alive = false;
+      offBrowser();
+      offCapture();
+      offSnapshot();
+      offInsert();
+    };
+  }, [refreshSnapshot]);
+
+  useEffect(() => {
+    if (activeTab) setAddress(activeTab.url);
+  }, [activeTab?.id, activeTab?.url]);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const observer = new ResizeObserver(updateBounds);
+    observer.observe(host);
+    window.addEventListener('resize', updateBounds);
+    updateBounds();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateBounds);
+      void window.willai.setBrowserBounds({ x: 0, y: 0, width: 0, height: 0 });
+    };
+  }, [updateBounds, showWorkPanel, loading]);
+
+  async function navigate(value = address) {
+    try {
+      await window.willai.navigate(value);
+      setNotice('');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not navigate to this address.');
+    }
   }
 
-  async function copyPairingToken() {
-    if (!bridge?.token) return;
-    await window.willai.copyText(bridge.token);
-    setNotice('Pairing token copied. Paste it into the WillAI-C browser extension.');
+  async function openProvider(provider: Provider) {
+    const existing = browserState.tabs.find((tab) => {
+      try { return new URL(tab.url).hostname.includes(provider === 'chatgpt' ? 'chatgpt' : provider === 'claude' ? 'claude' : 'deepseek'); }
+      catch { return false; }
+    });
+    if (existing) await window.willai.activateTab(existing.id);
+    else await window.willai.createTab(providerUrls[provider]);
   }
 
-  async function addRootNode(responseId: string) {
-    await window.willai.createChildNode(responseId, null);
-    await refresh();
-    setNotice('A new working node was created.');
+  function openConversation(conversation: Conversation) {
+    setActiveConversationId(conversation.id);
+    setShowWorkPanel(true);
+    void navigate(conversation.sourceUrl);
   }
 
-  async function createChild(responseId: string, parentId: string) {
-    await window.willai.createChildNode(responseId, parentId);
-    await refresh();
-    setNotice('A child node was created.');
+  async function insertContext() {
+    if (!activeConversation) return;
+    const result = await window.willai.insertContext(activeConversation.id);
+    if (!result.ok) setNotice(result.error || 'Could not insert shared context.');
   }
 
-  async function updateNode(nodeId: string, content: string) {
-    await window.willai.updateNode(nodeId, content);
-    await refresh();
-    setNotice('Node saved.');
-  }
-
-  async function setNodeContext(nodeId: string, enabled: boolean) {
-    await window.willai.setNodeContext(nodeId, enabled);
-    await refresh();
-    setNotice(enabled ? 'Node added to shared model context.' : 'Node kept private in WillAI-C.');
-  }
-
-  async function deleteNode(nodeId: string) {
-    await window.willai.deleteNode(nodeId);
-    await refresh();
-    setNotice('Node and its child nodes were deleted.');
-  }
+  const responseCount = snapshot.conversations.reduce((total, item) => total + item.responses.length, 0);
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand-lockup">
-          <div className="brand-mark">W</div>
-          <div>
-            <div className="brand-name">WillAI<span>-C</span></div>
-            <div className="brand-caption">CONNECT · RESPONSE WORKSPACE</div>
-          </div>
+    <div className="browser-app">
+      <div className="tab-strip">
+        <div className="tab-brand">
+          <span className="brand-mark">W</span>
+          <span className="brand-word">WillAI<span>-C</span></span>
         </div>
-
-        <div className="sidebar-section-label">WORKSPACE</div>
-        <button className="nav-item active" type="button">
-          <span className="nav-symbol">▤</span>
-          <span>Captured work</span>
-          <span className="nav-count">{snapshot.conversations.length}</span>
-        </button>
-        <div className="conversation-heading">
-          <span>Conversations</span>
-          <span>{snapshot.conversations.length}</span>
-        </div>
-        <div className="conversation-list">
-          {snapshot.conversations.map((conversation) => (
-            <button
-              className={`conversation-item ${activeConversationId === conversation.id ? 'selected' : ''}`}
-              type="button"
-              key={conversation.id}
-              onClick={() => setActiveConversationId(conversation.id)}
-            >
-              <span className={`provider-dot ${conversation.provider}`} />
-              <span className="conversation-copy">
-                <span className="conversation-title">{conversation.title}</span>
-                <span className="conversation-meta">{providerLabels[conversation.provider]} · {conversation.responses.length} response{conversation.responses.length === 1 ? '' : 's'}</span>
-              </span>
-            </button>
+        <div className="tabs">
+          {browserState.tabs.map((tab) => (
+            <div className={`browser-tab ${tab.id === browserState.activeTabId ? 'active' : ''}`} key={tab.id}>
+              <button className="tab-select" type="button" onClick={() => window.willai.activateTab(tab.id)} title={tab.url}>
+                {tab.isLoading ? <span className="loading-mark" /> : <span className={`provider-icon ${tab.provider || 'web'}`}>{tab.provider === 'chatgpt' ? '✳' : tab.provider === 'claude' ? '✴' : tab.provider === 'deepseek' ? '◈' : '●'}</span>}
+                <span className="tab-title">{tab.title || 'New tab'}</span>
+              </button>
+              <button className="tab-close" type="button" aria-label="Close tab" onClick={() => window.willai.closeTab(tab.id)}>×</button>
+            </div>
           ))}
-          {!snapshot.conversations.length && !loading && (
-            <div className="sidebar-empty">Captured conversations will appear here.</div>
-          )}
         </div>
+        <button className="new-tab-button" type="button" title="New tab" onClick={() => window.willai.createTab('https://chatgpt.com/')}>＋</button>
+        <div className="window-space">CHROMIUM · LOCAL PROFILE</div>
+      </div>
 
-        <div className="sidebar-bottom">
-          <div className="local-status"><span className="status-dot" /> Local workspace</div>
-          <div className="local-status-sub">Your captured work stays on this device.</div>
+      <div className="navigation-bar">
+        <div className="navigation-buttons">
+          <button type="button" title="Back" disabled={!activeTab?.canGoBack} onClick={() => window.willai.goBack()}>←</button>
+          <button type="button" title="Forward" disabled={!activeTab?.canGoForward} onClick={() => window.willai.goForward()}>→</button>
+          <button type="button" title="Reload" onClick={() => window.willai.reload()}>{activeTab?.isLoading ? '×' : '↻'}</button>
+          <button type="button" title="Open ChatGPT" onClick={() => openProvider('chatgpt')}>⌂</button>
         </div>
-      </aside>
+        <form className="address-form" onSubmit={(event) => { event.preventDefault(); void navigate(); }}>
+          <span className="address-security">◈</span>
+          <input
+            ref={addressRef}
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
+            placeholder="Search or enter an address"
+            spellCheck={false}
+            aria-label="Search or enter an address"
+          />
+          <button className="address-go" type="submit">Go</button>
+        </form>
+        <div className="browser-actions">
+          <button type="button" className={showWorkPanel ? 'selected' : ''} onClick={() => setShowWorkPanel((value) => !value)} title="Toggle WillAI workspace">◫ <span>WillAI</span></button>
+          <button type="button" title="Focus address bar" onClick={() => addressRef.current?.focus()}>⌕</button>
+        </div>
+      </div>
 
-      <main className="main-panel">
-        <header className="topbar">
-          <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><strong>{activeConversation?.title ?? 'Getting started'}</strong></div>
-          <div className="topbar-actions">
-            <div className={`bridge-pill ${bridge?.running ? 'connected' : 'disconnected'}`}>
-              <span className="status-dot" />
-              {bridge?.running ? 'Browser bridge ready' : 'Browser bridge offline'}
-            </div>
-            <button className="icon-button" type="button" aria-label="Show browser connection setup" onClick={() => setBridgeDetailsOpen((open) => !open)}>⌘</button>
+      {notice && <button className="notice" type="button" onClick={() => setNotice('')}>{notice}<span>×</span></button>}
+
+      <div className={`browser-body ${showWorkPanel ? 'with-work-panel' : ''}`}>
+        <aside className="browser-sidebar">
+          <div className="sidebar-group">
+            <div className="sidebar-label">AI WORKSPACES</div>
+            <button type="button" className="site-link" onClick={() => openProvider('chatgpt')}><span className="provider-icon chatgpt">✳</span>ChatGPT</button>
+            <button type="button" className="site-link" onClick={() => openProvider('claude')}><span className="provider-icon claude">✴</span>Claude</button>
+            <button type="button" className="site-link" onClick={() => openProvider('deepseek')}><span className="provider-icon deepseek">◈</span>DeepSeek</button>
           </div>
-        </header>
 
-        {notice && <button type="button" className="notice" onClick={() => setNotice('')}>{notice}<span>×</span></button>}
-
-        {loading ? (
-          <div className="loading-state">Opening your local workspace…</div>
-        ) : activeConversation ? (
-          <div className="workspace-layout">
-            <section className="work-column">
-              <div className="page-heading">
-                <div>
-                  <div className="eyebrow">RESPONSE WORKSPACE</div>
-                  <h1>{activeConversation.title}</h1>
-                  <p className="page-subtitle">Captured from {providerLabels[activeConversation.provider]}. Edit individual nodes without changing the source response.</p>
-                </div>
-                <button className="source-link" type="button" onClick={() => window.willai.openSourceUrl(activeConversation.sourceUrl)} title={activeConversation.sourceUrl}>
-                  <span>↗</span> Open source conversation
+          <div className="sidebar-divider" />
+          <div className="sidebar-group conversation-group">
+            <div className="sidebar-label">
+              <span>CAPTURED CONVERSATIONS</span><span className="sidebar-count">{snapshot.conversations.length}</span>
+            </div>
+            <div className="conversation-list">
+              {snapshot.conversations.map((conversation) => (
+                <button
+                  type="button"
+                  key={conversation.id}
+                  className={`conversation-link ${activeConversationId === conversation.id ? 'active' : ''}`}
+                  onClick={() => openConversation(conversation)}
+                  title={conversation.title}
+                >
+                  <span className={`provider-dot ${conversation.provider}`} />
+                  <span className="conversation-link-text">{conversation.title}</span>
                 </button>
-              </div>
-
-              <div className="response-stack">
-                {activeConversation.responses.map((response, index) => (
-                  <section className="response-card" key={response.id}>
-                    <div className="response-card-head">
-                      <div className="response-label-wrap">
-                        <span className="response-index">{String(index + 1).padStart(2, '0')}</span>
-                        <div>
-                          <div className="response-title">Original response</div>
-                          <div className="response-time">Captured {formatDate(response.capturedAt)}</div>
-                        </div>
-                      </div>
-                      <span className="immutable-label"><span>◈</span> SOURCE PRESERVED</span>
-                    </div>
-
-                    <details className="original-details">
-                      <summary>View original response <span>Read-only source</span></summary>
-                      <pre>{response.originalContent}</pre>
-                    </details>
-
-                    <div className="nodes-heading">
-                      <div>
-                        <span className="nodes-title">Working nodes</span>
-                        <span className="nodes-help">Independent, editable units</span>
-                      </div>
-                      <button className="text-button" type="button" onClick={() => addRootNode(response.id)}>＋ Add node</button>
-                    </div>
-
-                    <div className="node-tree">
-                      {response.nodes.filter((node) => node.parentId === null).sort((a, b) => a.position - b.position).map((node) => (
-                        <NodeEditor
-                          key={node.id}
-                          node={node}
-                          allNodes={response.nodes}
-                          onSave={updateNode}
-                          onToggleContext={setNodeContext}
-                          onCreateChild={(parentId) => createChild(response.id, parentId)}
-                          onDelete={deleteNode}
-                        />
-                      ))}
-                      {!response.nodes.some((node) => node.parentId === null) && (
-                        <div className="empty-nodes">No working nodes in this response. Add one to start shaping the content.</div>
-                      )}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            </section>
-
-            <aside className="inspector">
-              <div className="inspector-heading">
-                <div className="eyebrow">CONTEXT CONTROL</div>
-                <h2>Model context</h2>
-                <p>Only nodes you explicitly share are included when you insert context into the AI conversation.</p>
-              </div>
-              <div className="context-count-row">
-                <span>Shared content</span>
-                <strong>{countSharedNodes(activeConversation)} nodes</strong>
-              </div>
-              <div className="context-preview">
-                {activeConversation.sharedContextPreview ? (
-                  <pre>{activeConversation.sharedContextPreview}</pre>
-                ) : (
-                  <div className="context-empty">
-                    <div className="context-empty-icon">◉</div>
-                    <strong>Nothing shared yet</strong>
-                    <span>Keep edits private, or enable “Share with model” on a node to include it here.</span>
-                  </div>
-                )}
-              </div>
-              <button className="primary-button context-copy-button" type="button" disabled={!activeConversation.sharedContextPreview} onClick={copyContext}>Copy shared context</button>
-              <div className="inspector-note"><span>i</span><p>Inserting context never submits a prompt. You can review and edit it in the AI composer before sending.</p></div>
-              <div className="inspector-divider" />
-              <div className="source-info">
-                <div className="eyebrow">SOURCE</div>
-                <div className="source-provider"><span className={`provider-dot ${activeConversation.provider}`} />{providerLabels[activeConversation.provider]}</div>
-                <div className="source-url">{activeConversation.sourceUrl}</div>
-              </div>
-            </aside>
-          </div>
-        ) : (
-          <GettingStarted bridge={bridge} onCopyToken={copyPairingToken} />
-        )}
-
-        {bridgeDetailsOpen && (
-          <div className="bridge-popover">
-            <div className="bridge-popover-head">
-              <div><div className="eyebrow">LOCAL CONNECTION</div><strong>Connect your browser</strong></div>
-              <button type="button" className="close-button" onClick={() => setBridgeDetailsOpen(false)}>×</button>
+              ))}
+              {!snapshot.conversations.length && <div className="empty-sidebar">Captured AI responses will appear here.</div>}
             </div>
-            <p>Install the WillAI-C extension, then paste this pairing token into its popup. The local bridge listens only on this computer.</p>
-            <div className="token-box"><code>{bridge?.token ?? 'Unavailable'}</code><button type="button" onClick={copyPairingToken}>Copy</button></div>
-            <div className="bridge-address">http://{bridge?.host}:{bridge?.port}</div>
-            <div className="bridge-state"><span className={`status-dot ${bridge?.running ? '' : 'off'}`} />{bridge?.running ? 'Bridge listening' : 'Bridge not running — check whether port 43821 is already in use.'}</div>
           </div>
+
+          <div className="sidebar-footer">
+            <div><span className="status-dot" /> Browser profile active</div>
+            <small>History and sign-ins stay on this device.</small>
+          </div>
+        </aside>
+
+        <main className="browser-stage">
+          <div className="webview-host" ref={hostRef} />
+          {loading && <div className="browser-loading">Starting Chromium browser…</div>}
+        </main>
+
+        {showWorkPanel && (
+          <aside className="work-panel">
+            <div className="work-panel-header">
+              <div><div className="eyebrow">WILLAI WORKSPACE</div><h2>Response nodes</h2></div>
+              <button type="button" className="panel-close" onClick={() => setShowWorkPanel(false)}>×</button>
+            </div>
+            {activeConversation ? (
+              <ConversationWorkbench conversation={activeConversation} onRefresh={refreshSnapshot} onInsertContext={insertContext} />
+            ) : (
+              <div className="panel-empty">
+                <div className="panel-empty-symbol">◈</div>
+                <strong>No captured conversation selected</strong>
+                <span>Open an AI conversation in this browser and send or receive a response. WillAI-C will capture assistant output here.</span>
+                <small>{responseCount} responses captured across {snapshot.conversations.length} conversations</small>
+              </div>
+            )}
+          </aside>
         )}
-      </main>
+      </div>
     </div>
   );
 }
 
-function countSharedNodes(conversation: Conversation) {
-  return conversation.responses.flatMap((response) => response.nodes)
-    .filter((node) => node.includeInModelContext && node.content.trim()).length;
-}
+function ConversationWorkbench({
+  conversation,
+  onRefresh,
+  onInsertContext,
+}: {
+  conversation: Conversation;
+  onRefresh: () => Promise<void>;
+  onInsertContext: () => Promise<void>;
+}) {
+  const [selectedResponseId, setSelectedResponseId] = useState(conversation.responses.at(-1)?.id ?? null);
 
-function GettingStarted({ bridge, onCopyToken }: { bridge: BridgeInfo | null; onCopyToken: () => void }) {
+  useEffect(() => {
+    setSelectedResponseId(conversation.responses.at(-1)?.id ?? null);
+  }, [conversation.id, conversation.responses.length]);
+
+  const response = conversation.responses.find((item) => item.id === selectedResponseId) ?? conversation.responses.at(-1) ?? null;
+
+  async function addNode(responseId: string, parentId: string | null) {
+    await window.willai.createChildNode(responseId, parentId);
+    await onRefresh();
+  }
+
+  async function saveNode(nodeId: string, content: string) {
+    await window.willai.updateNode(nodeId, content);
+    await onRefresh();
+  }
+
+  async function setShared(nodeId: string, enabled: boolean) {
+    await window.willai.setNodeContext(nodeId, enabled);
+    await onRefresh();
+  }
+
+  async function deleteNode(nodeId: string) {
+    if (!window.confirm('Delete this node and all of its descendants?')) return;
+    await window.willai.deleteNode(nodeId);
+    await onRefresh();
+  }
+
+  const sharedCount = conversation.responses.flatMap((item) => item.nodes).filter((node) => node.includeInModelContext && !node.deletedAt).length;
+
   return (
-    <div className="getting-started">
-      <div className="welcome-mark">W<span>·</span>C</div>
-      <div className="eyebrow">WILLAI-C CONNECT</div>
-      <h1>Your responses.<br /><em>Your working material.</em></h1>
-      <p className="welcome-copy">WillAI-C sits beside the AI websites you already use. Capture an answer, work with its parts here, and decide exactly what the model can see next time.</p>
-      <div className="setup-grid">
-        <div className="setup-step"><span>01</span><div><strong>Open the desktop workspace</strong><p>WillAI-C owns the workspace. Your AI provider stays in your normal browser.</p></div></div>
-        <div className="setup-step"><span>02</span><div><strong>Install the browser extension</strong><p>Load the <code>extension</code> folder as an unpacked extension in Chrome or Edge.</p></div></div>
-        <div className="setup-step"><span>03</span><div><strong>Pair this device</strong><p>Copy the token below and paste it into the extension popup.</p></div></div>
+    <div className="workbench-content">
+      <div className="conversation-summary">
+        <span className={`provider-icon ${conversation.provider}`}>{conversation.provider === 'chatgpt' ? '✳' : conversation.provider === 'claude' ? '✴' : '◈'}</span>
+        <div><strong>{conversation.title}</strong><small>{providerLabels[conversation.provider]} · {conversation.responses.length} captured responses</small></div>
       </div>
-      <div className="pairing-card">
-        <div><span className="eyebrow">LOCAL PAIRING TOKEN</span><code>{bridge?.token ?? 'Bridge unavailable'}</code></div>
-        <button className="primary-button" type="button" onClick={onCopyToken} disabled={!bridge?.token}>Copy token</button>
+      <div className="workbench-actions">
+        <button type="button" className="insert-context-button" disabled={!conversation.sharedContextPreview} onClick={() => void onInsertContext()}>Insert shared context into prompt</button>
+        <div className="shared-status">{sharedCount} shared nodes · others remain private</div>
       </div>
-      <div className="welcome-footnote"><span className={`status-dot ${bridge?.running ? '' : 'off'}`} />{bridge?.running ? 'Local bridge ready' : 'Local bridge is unavailable. Check port 43821.'} · No provider API key required</div>
+      <div className="response-selector">
+        <div className="sidebar-label">ORIGINAL RESPONSES</div>
+        {conversation.responses.map((item, index) => (
+          <button key={item.id} type="button" className={`response-select ${response?.id === item.id ? 'active' : ''}`} onClick={() => setSelectedResponseId(item.id)}>
+            <span>Response {String(index + 1).padStart(2, '0')}</span><small>{new Date(item.capturedAt).toLocaleTimeString()}</small>
+          </button>
+        ))}
+      </div>
+      {response && (
+        <>
+          <details className="original-response">
+            <summary>View original response <span>read-only</span></summary>
+            <pre>{response.originalContent}</pre>
+          </details>
+          <div className="node-list-heading"><span>WORKING NODES</span><button type="button" onClick={() => void addNode(response.id, null)}>＋ Add node</button></div>
+          <div className="node-list">
+            {response.nodes.filter((node) => !node.deletedAt && !node.parentId).sort((a,b) => a.position-b.position).map((node) => (
+              <NodeEditor key={node.id} node={node} allNodes={response.nodes} onSave={saveNode} onShared={setShared} onAddChild={(parentId) => addNode(response.id,parentId)} onDelete={deleteNode} />
+            ))}
+            {!response.nodes.some((node) => !node.deletedAt && !node.parentId) && <div className="no-nodes">No working nodes yet. Create one from the original response.</div>}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -310,20 +349,20 @@ function NodeEditor({
   node,
   allNodes,
   onSave,
-  onToggleContext,
-  onCreateChild,
+  onShared,
+  onAddChild,
   onDelete,
 }: {
   node: WorkingNode;
   allNodes: WorkingNode[];
-  onSave: (nodeId: string, content: string) => Promise<void>;
-  onToggleContext: (nodeId: string, enabled: boolean) => Promise<void>;
-  onCreateChild: (parentId: string) => Promise<void>;
-  onDelete: (nodeId: string) => Promise<void>;
+  onSave: (id: string, content: string) => Promise<void>;
+  onShared: (id: string, enabled: boolean) => Promise<void>;
+  onAddChild: (parentId: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState(node.content);
   const [saving, setSaving] = useState(false);
-  const children = allNodes.filter((item) => item.parentId === node.id).sort((a, b) => a.position - b.position);
+  const children = allNodes.filter((item) => item.parentId === node.id && !item.deletedAt).sort((a,b) => a.position-b.position);
   const dirty = draft !== node.content;
 
   useEffect(() => setDraft(node.content), [node.content]);
@@ -335,52 +374,24 @@ function NodeEditor({
   }
 
   return (
-    <div className={`node-item ${node.parentId ? 'child-node' : ''}`}>
-      <div className="node-card">
-        <div className="node-card-top">
-          <div className="node-identity"><span className="node-grip">⠿</span><span className="node-kind">{node.parentId ? 'CHILD NODE' : 'NODE'}</span><span className={`provenance provenance-${node.provenance}`}>{node.provenance === 'captured' ? 'Captured' : node.provenance === 'human-edited' ? 'Human edited' : 'User created'}</span></div>
-          <button className="delete-button" type="button" title="Delete node and its children" onClick={() => {
-            if (window.confirm('Delete this node and all of its child nodes?')) onDelete(node.id);
-          }}>Delete</button>
+    <div className={`node-entry ${node.parentId ? 'nested' : ''}`}>
+      <div className="node-editor-card">
+        <div className="node-editor-top">
+          <span className="node-type">{node.provenance === 'captured' ? 'CAPTURED NODE' : node.provenance === 'human-edited' ? 'HUMAN EDITED' : 'USER NODE'}</span>
+          <button type="button" onClick={() => void onDelete(node.id)}>Delete</button>
         </div>
-        <textarea
-          className="node-editor"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Write or revise this working node…"
-          rows={Math.min(8, Math.max(3, draft.split('\n').length + 1))}
-          aria-label="Working node content"
-        />
-        <div className="node-card-bottom">
-          <button
-            type="button"
-            className={`context-toggle ${node.includeInModelContext ? 'enabled' : ''}`}
-            aria-pressed={node.includeInModelContext}
-            onClick={() => onToggleContext(node.id, !node.includeInModelContext)}
-          >
-            <span className="toggle-indicator" />{node.includeInModelContext ? 'Shared with model' : 'Private edit'}
+        <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={Math.max(3, Math.min(8, draft.split('\n').length + 1))} placeholder="Edit this node…" />
+        <div className="node-editor-actions">
+          <button type="button" className={node.includeInModelContext ? 'shared' : ''} onClick={() => void onShared(node.id, !node.includeInModelContext)}>
+            <span className="sharing-dot" />{node.includeInModelContext ? 'Shared with model' : 'Private edit'}
           </button>
-          <div className="node-actions">
-            {dirty && <button type="button" className="save-node-button" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save changes'}</button>}
-            <button type="button" className="subnode-button" onClick={() => onCreateChild(node.id)}>＋ Add child</button>
+          <div>
+            {dirty && <button type="button" className="save-node" disabled={saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save'}</button>}
+            <button type="button" onClick={() => void onAddChild(node.id)}>＋ Child</button>
           </div>
         </div>
       </div>
-      {children.length > 0 && (
-        <div className="child-node-list">
-          {children.map((child) => (
-            <NodeEditor
-              key={child.id}
-              node={child}
-              allNodes={allNodes}
-              onSave={onSave}
-              onToggleContext={onToggleContext}
-              onCreateChild={onCreateChild}
-              onDelete={onDelete}
-            />
-          ))}
-        </div>
-      )}
+      {children.length > 0 && <div className="nested-nodes">{children.map((child) => <NodeEditor key={child.id} node={child} allNodes={allNodes} onSave={onSave} onShared={onShared} onAddChild={onAddChild} onDelete={onDelete} />)}</div>}
     </div>
   );
 }
