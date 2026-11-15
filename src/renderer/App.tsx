@@ -21,17 +21,6 @@ const providerIcons: Record<Provider, string> = {
   deepseek: '◈',
 };
 
-type WorkspaceSearchKind = 'Conversation' | 'Original Response' | 'Working Node' | 'Prompt' | 'Prompt History' | 'Note' | 'Bookmark' | 'Browser History';
-interface WorkspaceSearchResult {
-  id: string;
-  kind: WorkspaceSearchKind;
-  title: string;
-  subtitle: string;
-  excerpt: string;
-  conversationId?: string;
-  url?: string;
-}
-
 const markdownRenderer = new MarkdownIt({
   html: false,
   linkify: true,
@@ -81,8 +70,28 @@ function App() {
   const [contextPanelWidth, setContextPanelWidth] = useState(340);
   const [searchOpen, setSearchOpen] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [globalSearchResults, setGlobalSearchResults] = useState<WorkspaceSearchResult[]>([]);
   const hostRef = useRef<HTMLDivElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!searchOpen || !globalSearchQuery.trim()) {
+      setGlobalSearchResults([]);
+      return;
+    }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void window.willai.searchWorkspace(globalSearchQuery, 80).then((results) => {
+        if (active) setGlobalSearchResults(results);
+      }).catch((error) => {
+        if (active) {
+          setGlobalSearchResults([]);
+          setNotice(error instanceof Error ? error.message : 'Global Search is unavailable.');
+        }
+      });
+    }, 140);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [searchOpen, globalSearchQuery]);
 
   const activeTab = useMemo(
     () => browserState.tabs.find((tab) => tab.id === browserState.activeTabId) ?? null,
@@ -93,71 +102,6 @@ function App() {
     () => snapshot.conversations.find((conversation) => conversation.id === activeConversationId) ?? null,
     [snapshot.conversations, activeConversationId],
   );
-
-  const globalSearchResults = useMemo((): WorkspaceSearchResult[] => {
-    const query = globalSearchQuery.trim().toLocaleLowerCase();
-    if (!query) return [];
-    const results: WorkspaceSearchResult[] = [];
-    const excerpt = (value: string) => {
-      const text = String(value || '').replace(/\s+/g, ' ').trim();
-      const index = text.toLocaleLowerCase().indexOf(query);
-      if (index < 0) return text.slice(0, 170);
-      const start = Math.max(0, index - 58);
-      const end = Math.min(text.length, index + query.length + 92);
-      return (start ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '');
-    };
-
-    for (const conversation of snapshot.conversations) {
-      if (conversation.title.toLocaleLowerCase().includes(query)) {
-        results.push({ id: conversation.id, kind: 'Conversation', title: conversation.title,
-          subtitle: providerLabels[conversation.provider] + ' · Conversation',
-          excerpt: conversation.responses.length + ' original responses' });
-      }
-      conversation.responses.forEach((response, index) => {
-        if (response.originalContent.toLocaleLowerCase().includes(query)) {
-          results.push({ id: response.id, kind: 'Original Response', title: conversation.title + ' · Response ' + (index + 1),
-            subtitle: providerLabels[conversation.provider] + ' · Original response',
-            excerpt: excerpt(response.originalContent), conversationId: conversation.id });
-        }
-        response.nodes.filter((node) => !node.deletedAt && node.content.toLocaleLowerCase().includes(query)).forEach((node) => {
-          results.push({ id: node.id, kind: 'Working Node', title: conversation.title,
-            subtitle: providerLabels[conversation.provider] + ' · Working node',
-            excerpt: excerpt(node.content), conversationId: conversation.id });
-        });
-      });
-    }
-    snapshot.prompts.forEach((prompt) => {
-      if ((prompt.title + ' ' + prompt.content + ' ' + prompt.category + ' ' + prompt.tags.join(' ')).toLocaleLowerCase().includes(query)) {
-        results.push({ id: prompt.id, kind: 'Prompt', title: prompt.title, subtitle: prompt.category || 'Saved prompt', excerpt: excerpt(prompt.content) });
-      }
-    });
-    snapshot.promptHistory.forEach((item) => {
-      if ((item.promptTitle + ' ' + item.content).toLocaleLowerCase().includes(query)) {
-        results.push({ id: item.id, kind: 'Prompt History', title: item.promptTitle || 'Previous prompt',
-          subtitle: item.provider || 'Prompt history', excerpt: excerpt(item.content) });
-      }
-    });
-    snapshot.notes.forEach((note) => {
-      if ((note.title + ' ' + note.content).toLocaleLowerCase().includes(query)) {
-        results.push({ id: note.id, kind: 'Note', title: note.title || 'Untitled note',
-          subtitle: note.conversationId ? 'Conversation note' : 'Global note', excerpt: excerpt(note.content),
-          conversationId: note.conversationId || undefined });
-      }
-    });
-    snapshot.bookmarks.forEach((bookmark) => {
-      if ((bookmark.name + ' ' + bookmark.url).toLocaleLowerCase().includes(query)) {
-        results.push({ id: bookmark.id, kind: 'Bookmark', title: bookmark.name || bookmark.url,
-          subtitle: 'Saved website', excerpt: bookmark.url, url: bookmark.url });
-      }
-    });
-    snapshot.browserHistory.forEach((item) => {
-      if ((item.title + ' ' + item.url).toLocaleLowerCase().includes(query)) {
-        results.push({ id: item.id, kind: 'Browser History', title: item.title || item.url,
-          subtitle: 'Browser history', excerpt: item.url, url: item.url });
-      }
-    });
-    return results.slice(0, 80);
-  }, [snapshot, globalSearchQuery]);
 
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();

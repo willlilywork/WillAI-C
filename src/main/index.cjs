@@ -25,6 +25,10 @@ function registerRendererIpc() {
     assertTrustedRenderer(event);
     return store.getSnapshot();
   });
+  ipcMain.handle('willai:search-workspace', (event, query, limit) => {
+    assertTrustedRenderer(event);
+    return store.searchWorkspace(String(query || ''), limit);
+  });
   ipcMain.handle('willai:get-browser-state', (event) => {
     assertTrustedRenderer(event);
     return browser?.getState() || { tabs: [], activeTabId: null };
@@ -339,6 +343,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   browser?.destroy();
+  store?.close();
 });
 
 app.on('window-all-closed', () => {
