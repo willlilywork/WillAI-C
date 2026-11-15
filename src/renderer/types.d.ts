@@ -169,6 +169,7 @@ declare global {
   interface Window {
     willai: {
       getSnapshot(): Promise<WillAISnapshot>;
+      sendPrompt(provider: Provider, content: string): Promise<{ok: boolean; provider?: Provider; tabId?: string; error?: string}>;
       searchWorkspace(query: string, limit?: number): Promise<WorkspaceSearchResult[]>;
       getBrowserState(): Promise<BrowserState>;
       createTab(url?: string): Promise<string>;

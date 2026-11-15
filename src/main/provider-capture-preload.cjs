@@ -378,7 +378,7 @@ const { ipcRenderer } = require('electron');
     }
   });
 
-  function insertTextIntoComposer(text) {
+  function insertTextIntoComposer(text, notify = true) {
     const composerSelectors = provider === 'chatgpt'
       ? ['#prompt-textarea', 'textarea[data-testid="prompt-textarea"]', '[contenteditable="true"][data-testid="prompt-textarea"]']
       : provider === 'claude'
@@ -391,8 +391,8 @@ const { ipcRenderer } = require('electron');
       if (composer) break;
     }
     if (!composer) {
-      ipcRenderer.send('willai:context-insert-result', { ok: false, error: 'Could not find the prompt composer on this page.' });
-      return;
+      if (notify) ipcRenderer.send('willai:context-insert-result', { ok: false, error: 'Could not find the prompt composer on this page.' });
+      return { ok: false, error: 'Could not find the prompt composer on this page.' };
     }
 
     composer.focus();
@@ -400,7 +400,12 @@ const { ipcRenderer } = require('electron');
       const start = composer.selectionStart ?? composer.value.length;
       const end = composer.selectionEnd ?? composer.value.length;
       const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(composer), 'value')?.set;
-      setter?.call(composer, composer.value.slice(0, start) + text + composer.value.slice(end));
+      if (!setter) {
+        const error = 'The provider composer does not expose a writable text value.';
+        if (notify) ipcRenderer.send('willai:context-insert-result', { ok: false, error });
+        return { ok: false, error };
+      }
+      setter.call(composer, composer.value.slice(0, start) + text + composer.value.slice(end));
       composer.setSelectionRange(start + text.length, start + text.length);
       composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
     } else {
@@ -408,8 +413,9 @@ const { ipcRenderer } = require('electron');
       if (!inserted) {
         const selection = window.getSelection();
         if (!selection) {
-          ipcRenderer.send('willai:context-insert-result', { ok: false, error: 'Could not access the provider text selection.' });
-          return;
+          const error = 'Could not access the provider text selection.';
+          if (notify) ipcRenderer.send('willai:context-insert-result', { ok: false, error });
+          return { ok: false, error };
         }
         const range = selection.rangeCount ? selection.getRangeAt(0) : document.createRange();
         range.deleteContents();
@@ -420,8 +426,65 @@ const { ipcRenderer } = require('electron');
       }
     }
 
-    ipcRenderer.send('willai:context-insert-result', { ok: true });
+    if (notify) ipcRenderer.send('willai:context-insert-result', { ok: true });
+    return { ok: true, composer };
   }
+
+  function findSendButton() {
+    const selectors = provider === 'chatgpt'
+      ? ['button[data-testid="send-button"]', 'button[aria-label="Send prompt"]', 'button[aria-label="Send message"]']
+      : provider === 'claude'
+        ? ['button[data-testid="send-button"]', 'button[aria-label="Send message"]', 'button[aria-label*="Send" i]']
+        : ['button[data-testid="send-button"]', 'button[aria-label="Send"]', 'button[aria-label*="Send" i]', '[role="button"][aria-label*="Send" i]'];
+    for (const selector of selectors) {
+      const button = document.querySelector(selector);
+      if (!button) continue;
+      if (button.getClientRects().length === 0) continue;
+      if (button.disabled || button.getAttribute('aria-disabled') === 'true') continue;
+      return button;
+    }
+    return null;
+  }
+
+  const pendingSubmissions = new Set();
+  function reportPromptSubmission(requestId, ok, error) {
+    pendingSubmissions.delete(requestId);
+    ipcRenderer.send('willai:prompt-submit-result', { requestId, provider, ok, ...(error ? { error } : {}) });
+  }
+
+  function waitForSendControl(requestId, attempt = 0) {
+    const button = findSendButton();
+    if (button) {
+      try {
+        button.click();
+        reportPromptSubmission(requestId, true);
+      } catch (error) {
+        reportPromptSubmission(requestId, false, error instanceof Error ? error.message : 'The send button could not be activated.');
+      }
+      return;
+    }
+    if (attempt >= 35) {
+      reportPromptSubmission(requestId, false, 'The prompt was placed in the composer, but the provider send control was not available. Open Browser to review and submit it manually.');
+      return;
+    }
+    setTimeout(() => waitForSendControl(requestId, attempt + 1), 150);
+  }
+
+  ipcRenderer.on('willai:send-prompt', (_event, request) => {
+    const requestId = String(request?.requestId || '');
+    if (!requestId || pendingSubmissions.has(requestId)) return;
+    if (request?.provider !== provider) {
+      ipcRenderer.send('willai:prompt-submit-result', { requestId, provider, ok: false, error: 'The request was routed to a different provider page.' });
+      return;
+    }
+    pendingSubmissions.add(requestId);
+    const inserted = insertTextIntoComposer(String(request.content || ''), false);
+    if (!inserted.ok) {
+      reportPromptSubmission(requestId, false, inserted.error);
+      return;
+    }
+    setTimeout(() => waitForSendControl(requestId), 180);
+  });
 
   ipcRenderer.on('willai:insert-context', (_event, context) => {
     const text = '--- WillAI-C shared context ---\n'

@@ -223,26 +223,6 @@ function App() {
   }, [activeTab?.id, activeTab?.url]);
 
   useEffect(() => {
-    if (!pendingPrompt || pendingPrompt.dispatched || activeTab?.provider !== pendingPrompt.provider) return;
-    const state = activeTab.captureStatus?.state;
-    if (!state || !['ready', 'no-message-elements', 'message-elements-found', 'response-sent'].includes(state)) return;
-
-    const pending = pendingPrompt;
-    setPendingPrompt({ ...pending, dispatched: true });
-    void window.willai.insertPrompt(pending.content).then(async (result) => {
-      if (!result.ok) {
-        setPendingPrompt(null);
-        setNotice(result.error || 'Could not insert the prompt into the provider composer.');
-        return;
-      }
-      await window.willai.recordPromptHistory(pending.content, pending.provider);
-    }).catch((error) => {
-      setPendingPrompt(null);
-      setNotice(error instanceof Error ? error.message : 'Could not insert the prompt.');
-    });
-  }, [pendingPrompt, activeTab?.id, activeTab?.provider, activeTab?.captureStatus?.state]);
-
-  useEffect(() => {
     const host = hostRef.current;
     if (!host || !browserOpen) {
       updateBounds();
@@ -345,28 +325,27 @@ function App() {
     if (!content || pendingPrompt) return;
 
     setSelectedProvider(provider);
-    setPendingPrompt({ provider, content, dispatched: false });
-    setWorkspaceView('browser');
-    setBrowserOpen(true);
-    setNotice('Opening ' + providerLabels[provider] + ' and preparing your prompt…');
-
-    const existing = browserState.tabs.find((tab) => {
-      try {
-        const host = new URL(tab.url).hostname.toLowerCase();
-        if (provider === 'chatgpt') return host === 'chatgpt.com' || host === 'chat.openai.com';
-        if (provider === 'claude') return host === 'claude.ai';
-        return host === 'deepseek.com' || host.endsWith('.deepseek.com');
-      } catch {
-        return false;
-      }
-    });
+    setPendingPrompt({ provider, content, dispatched: true });
+    setBrowserOpen(false);
+    setWorkspaceView('newchat');
+    setNotice('Sending request through your ' + providerLabels[provider] + ' session…');
 
     try {
-      if (existing) await window.willai.activateTab(existing.id);
-      else await window.willai.createTab(providerUrls[provider]);
+      // Zero the native WebContentsView bounds before selecting its provider tab.
+      // The tab continues to load, submit and capture in the background.
+      await window.willai.setBrowserBounds({ x: 0, y: 0, width: 0, height: 0 });
+      const result = await window.willai.sendPrompt(provider, content);
+      setPendingPrompt(null);
+      if (!result.ok) {
+        setNotice(result.error || 'The provider could not confirm that the request was sent.');
+        return;
+      }
+      await window.willai.recordPromptHistory(content, provider);
+      setDraftPrompt('');
+      setNotice('Request sent to ' + providerLabels[provider] + '. WillAI-C is waiting for the completed response.');
     } catch (error) {
       setPendingPrompt(null);
-      setNotice(error instanceof Error ? error.message : 'Could not open the selected provider.');
+      setNotice(error instanceof Error ? error.message : 'Could not send the request to the selected provider.');
     }
   }
 
@@ -948,7 +927,7 @@ function NewConversation({
         <div className="new-conversation-eyebrow">WILLAI-C WORKSPACE</div>
         <h1>What would you like to work on?</h1>
         <p className="new-conversation-description">
-          Start with a prompt. Your provider response will be captured into this workspace, where you can preserve the original and work with its content.
+          Write your request here. WillAI-C sends it through your selected signed-in provider session and returns the completed response to this workspace.
         </p>
 
         <form className="new-conversation-composer" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
@@ -970,14 +949,14 @@ function NewConversation({
               </select>
             </label>
             <button type="submit" className="new-conversation-submit" disabled={disabled || pending || !prompt.trim()}>
-              {pending ? 'Preparing prompt…' : 'Open provider and insert prompt'} <span>↗</span>
+              {pending ? 'Sending request…' : 'Send request'} <span>↗</span>
             </button>
           </div>
         </form>
 
         <div className="new-conversation-footnote">
           <span className="new-conversation-status-dot" />
-          Uses your existing signed-in provider session. WillAI-C inserts the prompt for review; you submit it on the provider page.
+          Uses your existing signed-in provider session. The provider page runs in the background while WillAI-C captures the completed response.
         </div>
       </div>
     </div>

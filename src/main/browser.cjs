@@ -14,6 +14,8 @@ class BrowserController {
     this.onVisit = onVisit || (() => {});
     this.lastVisitByTab = new Map();
     this.tabs = new Map();
+    this.adapterReadyWaiters = new Map();
+    this.pendingPromptSubmissions = new Map();
     this.activeTabId = null;
     this.contentBounds = { x: 0, y: 0, width: 0, height: 0 };
     this.browserSession = session.fromPartition(SESSION_PARTITION);
@@ -269,6 +271,99 @@ class BrowserController {
     this.getActiveTab()?.view.webContents.reload();
   }
 
+  waitForProviderAdapter(tab, timeoutMs = 25000) {
+    const readyStates = new Set(['ready', 'no-message-elements', 'message-elements-found', 'response-sent']);
+    if (tab.captureStatus && readyStates.has(tab.captureStatus.state)) return Promise.resolve();
+    if (!tab.view || tab.view.webContents.isDestroyed()) return Promise.reject(new Error('The provider tab was closed before it became ready.'));
+
+    return new Promise((resolve, reject) => {
+      const waiter = {
+        finish: (error) => {
+          clearTimeout(timer);
+          const waiters = this.adapterReadyWaiters.get(tab.id) || [];
+          this.adapterReadyWaiters.set(tab.id, waiters.filter((item) => item !== waiter));
+          if (error) reject(error);
+          else resolve();
+        },
+      };
+      const waiters = this.adapterReadyWaiters.get(tab.id) || [];
+      waiters.push(waiter);
+      this.adapterReadyWaiters.set(tab.id, waiters);
+      const timer = setTimeout(() => waiter.finish(new Error('The provider adapter did not become ready. Open the Browser workspace to inspect the provider page.')), timeoutMs);
+    });
+  }
+
+  async sendPrompt(provider, content) {
+    const urls = {
+      chatgpt: 'https://chatgpt.com/',
+      claude: 'https://claude.ai/new',
+      deepseek: 'https://chat.deepseek.com/',
+    };
+    const selectedProvider = String(provider || '').toLowerCase();
+    const prompt = String(content || '').trim();
+    if (!Object.prototype.hasOwnProperty.call(urls, selectedProvider)) {
+      return { ok: false, error: 'This AI provider is not supported.' };
+    }
+    if (!prompt) return { ok: false, error: 'Enter a prompt before sending.' };
+    if (prompt.length > 100000) return { ok: false, error: 'The prompt is too long to send in one request.' };
+
+    let tab = [...this.tabs.values()].find((item) => providerFromUrl(item.url) === selectedProvider);
+    try {
+      if (!tab) {
+        const tabId = await this.createTab(urls[selectedProvider], { background: true });
+        tab = this.tabs.get(tabId);
+      }
+      if (!tab || tab.view.webContents.isDestroyed()) {
+        return { ok: false, error: 'WillAI-C could not open the selected provider session.' };
+      }
+
+      this.activateTab(tab.id);
+      await this.waitForProviderAdapter(tab);
+      const requestId = randomUUID();
+
+      return await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          this.pendingPromptSubmissions.delete(requestId);
+          resolve({ ok: false, error: 'The provider did not confirm that the prompt was sent. Open Browser to review the composer.' });
+        }, 12000);
+        this.pendingPromptSubmissions.set(requestId, {
+          tabId: tab.id,
+          provider: selectedProvider,
+          timer,
+          resolve,
+        });
+        try {
+          tab.view.webContents.send('willai:send-prompt', { requestId, provider: selectedProvider, content: prompt });
+        } catch (error) {
+          clearTimeout(timer);
+          this.pendingPromptSubmissions.delete(requestId);
+          resolve({ ok: false, error: error instanceof Error ? error.message : 'Could not send the prompt to the provider page.' });
+        }
+      });
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Could not prepare the selected provider.' };
+    }
+  }
+
+  handlePromptSubmitResult(webContents, payload) {
+    const tab = this.getTabByWebContents(webContents);
+    if (!tab) return false;
+    let pageUrl;
+    try { pageUrl = new URL(webContents.getURL()); } catch { return false; }
+    const provider = providerFromUrl(pageUrl.href);
+    const requestId = String(payload?.requestId || '');
+    const pending = this.pendingPromptSubmissions.get(requestId);
+    if (pageUrl.protocol !== 'https:' || !provider || !pending
+      || pending.tabId !== tab.id || pending.provider !== provider || payload?.provider !== provider) return false;
+
+    clearTimeout(pending.timer);
+    this.pendingPromptSubmissions.delete(requestId);
+    pending.resolve(payload.ok
+      ? { ok: true, provider, tabId: tab.id }
+      : { ok: false, provider, error: String(payload.error || 'The provider page could not submit this prompt.') });
+    return true;
+  }
+
   insertContext(context) {
     const tab = this.getActiveTab();
     if (!tab || !context) return { ok: false, error: 'No active page or no shared context.' };
@@ -308,6 +403,11 @@ class BrowserController {
       message: String(payload.message || '').slice(0, 240),
       updatedAt: new Date().toISOString(),
     };
+    if (['ready', 'no-message-elements', 'message-elements-found', 'response-sent'].includes(state)) {
+      const waiters = this.adapterReadyWaiters.get(tab.id) || [];
+      this.adapterReadyWaiters.delete(tab.id);
+      for (const waiter of waiters) waiter.finish();
+    }
     this.emitState();
     return true;
   }
@@ -360,6 +460,15 @@ class BrowserController {
   }
 
   destroy() {
+    for (const waiters of this.adapterReadyWaiters.values()) {
+      for (const waiter of waiters) waiter.finish(new Error('WillAI-C is closing.'));
+    }
+    this.adapterReadyWaiters.clear();
+    for (const pending of this.pendingPromptSubmissions.values()) {
+      clearTimeout(pending.timer);
+      pending.resolve({ ok: false, error: 'WillAI-C closed before the provider confirmed the request.' });
+    }
+    this.pendingPromptSubmissions.clear();
     for (const tab of this.tabs.values()) {
       try {
         this.window.contentView.removeChildView(tab.view);
