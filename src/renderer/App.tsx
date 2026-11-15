@@ -349,6 +349,23 @@ function App() {
     }
   }
 
+  function navigateTo(view: 'newchat' | 'home' | 'work' | 'prompts' | 'notes' | 'library' | 'browser') {
+    setWorkspaceView(view);
+    setBrowserOpen(view === 'browser');
+    if (view === 'newchat') setActiveConversationId(null);
+    if (view === 'home') { setFolderFilter(null); setShowArchived(false); }
+  }
+
+  async function toggleNodeContext(nodeId: string, enabled: boolean) {
+    try {
+      const result = await window.willai.setNodeContext(nodeId, enabled);
+      if (!result.ok) { setNotice('Could not update Model Context selection.'); return; }
+      await refreshSnapshot();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not update Model Context selection.');
+    }
+  }
+
   async function insertContext() {
     if (!activeConversation) return;
     if (!activeTab?.provider) { setNotice('Open a supported AI provider in Browser before inserting Model Context.'); return; }
