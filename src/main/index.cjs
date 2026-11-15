@@ -100,13 +100,25 @@ function registerRendererIpc() {
         sourceUrl: event.sender.getURL(),
         title: event.sender.getTitle() || payload.title,
       });
+      browser.markCaptured(event.sender);
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('willai:capture-received', result);
         mainWindow.webContents.send('willai:snapshot-changed');
       }
     } catch (error) {
+      browser.markCaptureError(event.sender, error.message);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('willai:capture-error', {
+          provider: payload?.provider || 'unknown',
+          error: error.message,
+        });
+      }
       console.warn('WillAI-C capture was rejected:', error.message);
     }
+  });
+
+  ipcMain.on('willai:provider-status', (event, payload) => {
+    browser?.handleProviderStatus(event.sender, payload || {});
   });
 
   ipcMain.on('willai:context-insert-result', (_event, result) => {
