@@ -81,6 +81,14 @@ function registerRendererIpc() {
     assertTrustedRenderer(event);
     return store.createChildNode(String(responseId), parentId ? String(parentId) : null);
   });
+  ipcMain.handle('willai:create-sibling-node', (event, nodeId, content) => {
+    assertTrustedRenderer(event);
+    return store.createSiblingNode(String(nodeId), String(content ?? ''));
+  });
+  ipcMain.handle('willai:move-node', (event, nodeId, direction) => {
+    assertTrustedRenderer(event);
+    return store.moveNode(String(nodeId), String(direction));
+  });
   ipcMain.handle('willai:delete-node', (event, nodeId) => {
     assertTrustedRenderer(event);
     return store.deleteNode(String(nodeId));
@@ -237,29 +245,33 @@ function registerRendererIpc() {
   });
 
   ipcMain.on('willai:provider-response', (event, payload) => {
-    if (!browser) return;
+    const captureId = String(payload?.captureId || '');
+    const acknowledge = (result) => {
+      if (!event.sender.isDestroyed()) event.sender.send('willai:provider-capture-result', { captureId, ...result });
+    };
+    if (!browser) { acknowledge({ ok: false, error: 'The browser controller is unavailable.' }); return; }
     const accepted = browser.handleProviderCapture(event.sender, payload || {});
-    if (!accepted) return;
+    if (!accepted) { acknowledge({ ok: false, error: 'The provider tab or message could not be validated.' }); return; }
     try {
       const result = store.capture({
         ...payload,
         sourceUrl: event.sender.getURL(),
         title: event.sender.getTitle() || payload.title,
       });
+      acknowledge({ ok: true, created: result.created });
       browser.markCaptured(event.sender);
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('willai:capture-received', result);
-        mainWindow.webContents.send('willai:snapshot-changed');
+        if (result.created) mainWindow.webContents.send('willai:snapshot-changed');
       }
     } catch (error) {
-      browser.markCaptureError(event.sender, error.message);
+      const message = error instanceof Error ? error.message : String(error);
+      acknowledge({ ok: false, error: message });
+      browser.markCaptureError(event.sender, message);
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('willai:capture-error', {
-          provider: payload?.provider || 'unknown',
-          error: error.message,
-        });
+        mainWindow.webContents.send('willai:capture-error', { provider: payload?.provider || 'unknown', error: message });
       }
-      console.warn('WillAI-C capture was rejected:', error.message);
+      console.warn('WillAI-C capture was rejected:', message);
     }
   });
 
@@ -276,8 +288,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1560,
     height: 980,
-    minWidth: 1120,
-    minHeight: 700,
+    minWidth: 860,
+    minHeight: 600,
     backgroundColor: '#101316',
     title: 'WillAI-C',
     autoHideMenuBar: true,
