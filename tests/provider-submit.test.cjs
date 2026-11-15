@@ -42,3 +42,26 @@ test('renderer keeps New Conversation visible while background requests execute'
   assert.ok(app.includes('setBrowserOpen(false)'));
   assert.ok(app.includes('window.willai.sendPrompt(provider, content)'));
 });
+
+
+test('the Browser workspace can explicitly rescan loaded provider messages through the trusted IPC bridge', () => {
+  const browser = fs.readFileSync(path.join(root, 'src/main/browser.cjs'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'src/main/index.cjs'), 'utf8');
+  const preload = fs.readFileSync(path.join(root, 'src/main/preload.cjs'), 'utf8');
+  const provider = fs.readFileSync(path.join(root, 'src/main/provider-capture-preload.cjs'), 'utf8');
+  const app = fs.readFileSync(path.join(root, 'src/renderer/App.tsx'), 'utf8');
+  assert.ok(browser.includes('requestProviderRescan()'));
+  assert.ok(browser.includes("webContents.send('willai:rescan-provider-conversation')"));
+  assert.ok(main.includes("ipcMain.handle('willai:rescan-provider-conversation'"));
+  assert.ok(preload.includes("ipcRenderer.invoke('willai:rescan-provider-conversation')"));
+  assert.ok(provider.includes("ipcRenderer.on('willai:rescan-provider-conversation'"));
+  assert.ok(provider.includes("reportStatus("));
+  assert.ok(app.includes('Extract loaded responses'));
+  assert.ok(app.includes('scroll up to load them'));
+});
+
+test('capture event TypeScript contract includes response revisions and rescan API', () => {
+  const types = fs.readFileSync(path.join(root, 'src/renderer/types.d.ts'), 'utf8');
+  assert.ok(types.includes('updated?: boolean'));
+  assert.ok(types.includes('rescanProviderConversation()'));
+});

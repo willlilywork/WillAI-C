@@ -71,6 +71,10 @@ function registerRendererIpc() {
     assertTrustedRenderer(event);
     browser.setContentBounds(bounds || {});
   });
+  ipcMain.handle('willai:rescan-provider-conversation', (event) => {
+    assertTrustedRenderer(event);
+    return browser.requestProviderRescan();
+  });
   ipcMain.handle('willai:insert-context', (event, conversationId) => {
     assertTrustedRenderer(event);
     const conversation = store.getSnapshot().conversations.find((item) => item.id === conversationId);

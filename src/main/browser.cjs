@@ -377,6 +377,23 @@ class BrowserController {
     return true;
   }
 
+  requestProviderRescan() {
+    const tab = this.getActiveTab();
+    if (!tab || tab.view.webContents.isDestroyed()) {
+      return { ok: false, error: 'Open a supported provider conversation in the Browser workspace first.' };
+    }
+    let url = '';
+    try { url = tab.view.webContents.getURL(); } catch {}
+    const provider = providerFromUrl(url);
+    if (!provider) return { ok: false, error: 'The active browser tab is not a supported AI provider.' };
+    try {
+      tab.view.webContents.send('willai:rescan-provider-conversation');
+      return { ok: true, provider };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Could not request a provider conversation scan.' };
+    }
+  }
+
   insertContext(context) {
     const tab = this.getActiveTab();
     if (!tab || !context) return { ok: false, error: 'No active page or no shared context.' };

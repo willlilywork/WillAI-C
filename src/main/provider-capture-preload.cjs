@@ -380,6 +380,15 @@ const { ipcRenderer } = require('electron');
     }
   }
 
+  ipcRenderer.on('willai:rescan-provider-conversation', () => {
+    reportStatus(
+      'scanning',
+      0,
+      'Scanning assistant responses currently loaded in this provider page.',
+    );
+    scan();
+  });
+
   function scheduleScan() {
     if (scanTimer) clearTimeout(scanTimer);
     scanTimer = setTimeout(scan, 500);

@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const api = {
   getSnapshot: () => ipcRenderer.invoke('willai:get-snapshot'),
   sendPrompt: (provider, content) => ipcRenderer.invoke('willai:send-prompt', provider, content),
+  rescanProviderConversation: () => ipcRenderer.invoke('willai:rescan-provider-conversation'),
   searchWorkspace: (query, limit) => ipcRenderer.invoke('willai:search-workspace', query, limit),
   getBrowserState: () => ipcRenderer.invoke('willai:get-browser-state'),
   createTab: (url) => ipcRenderer.invoke('willai:create-tab', url),

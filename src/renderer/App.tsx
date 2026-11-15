@@ -1056,6 +1056,24 @@ function MetricCard({ label, value, detail }: { label: string; value: number; de
 
 function CaptureStatusPanel({ tab }: { tab: BrowserTab | null }) {
   const status = tab?.captureStatus ?? null;
+  const [rescanPending, setRescanPending] = useState(false);
+  const [rescanMessage, setRescanMessage] = useState('');
+
+  async function rescanLoadedResponses() {
+    if (!tab?.provider || rescanPending) return;
+    setRescanPending(true);
+    setRescanMessage('');
+    try {
+      const result = await window.willai.rescanProviderConversation();
+      setRescanMessage(result.ok
+        ? 'Scan requested. Captured answers will appear in Work.'
+        : result.error || 'Could not scan this provider page.');
+    } catch (error) {
+      setRescanMessage(error instanceof Error ? error.message : 'Could not scan this provider page.');
+    } finally {
+      setRescanPending(false);
+    }
+  }
   const stateLabel = !tab?.provider
     ? 'Not an AI provider'
     : !status
@@ -1092,6 +1110,13 @@ function CaptureStatusPanel({ tab }: { tab: BrowserTab | null }) {
           : 'Open a supported AI provider to enable response capture.')}</small>
       </div>
       {status && <div className="capture-status-counts"><span>{status.candidateCount} candidates</span><span>{status.capturedCount} saved</span></div>}
+      {tab?.provider && (
+        <button type="button" className="capture-rescan-button" onClick={() => void rescanLoadedResponses()} disabled={rescanPending}>
+          {rescanPending ? 'Scanning…' : 'Extract loaded responses'}
+        </button>
+      )}
+      {rescanMessage && <small className="capture-rescan-message">{rescanMessage}</small>}
+      {tab?.provider && <small className="capture-rescan-hint">For older messages, scroll up to load them before extracting again.</small>}
     </div>
   );
 }
