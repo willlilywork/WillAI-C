@@ -381,7 +381,7 @@ function render(){
  if(state.lastRenderedDest!==state.dest){$('#canvas').scrollTop=0;state.lastRenderedDest=state.dest;}
  $('#app').classList.toggle('with-inspector',state.inspector);
  $('#inspector').classList.toggle('open',state.inspector);
- $(' $('#breadcrumb').innerHTML='<strong>'+({newchat:'New conversation',home:'Home',work:'Work',conversation:'Conversation',workbench:'Response Workbench',tree:'Conversations Tree',browser:'Browser Session',prompts:'Prompts',notes:'Notes',media:'Media'}[state.dest]||'Workspace')+'</strong>';
+ $('#breadcrumb').innerHTML='<strong>'+({newchat:'New conversation',home:'Home',work:'Work',conversation:'Conversation',workbench:'Response Workbench',tree:'Conversations Tree',browser:'Browser Session',prompts:'Prompts',notes:'Notes',media:'Media'}[state.dest]||'Workspace')+'</strong>';
  $$('.rail-btn[data-dest]').forEach(b=>b.classList.toggle('active',b.dataset.dest===state.dest));
  navHtml();
  let page=state.dest==='newchat'?newConversationPage():state.dest==='home'?homePage():state.dest==='work'?workPage():state.dest==='conversation'?conversationPage():state.dest==='workbench'?workbenchPage():state.dest==='tree'?conversationsTreePage():state.dest==='browser'?browserPage():state.dest==='prompts'?promptPage():state.dest==='notes'?notesPage():mediaPage();
