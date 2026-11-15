@@ -1,19 +1,20 @@
 # WillAI-C
 
-**WillAI-C is a Chromium-based browser with WillAI features integrated into the browser itself.** Browsing happens inside WillAI-C. ChatGPT, Claude, DeepSeek, Custom GPTs, and ordinary websites open in WillAI-C tabs—not in an external Chrome window.
+**WillAI-C is a workspace-centered desktop application built on an integrated Chromium browser engine.** The WillAI-C workspace is the primary interface for conversations, captured responses, working nodes, prompts, notes, and other work. Chromium is the runtime that hosts ChatGPT, Claude, DeepSeek, Custom GPTs, and ordinary websites inside a managed browser dock; it is not the application's shell or the dominant interface.
 
-WillAI-C uses the Chromium engine bundled with Electron. It is an independent browser application; it does not launch or wrap the separately installed Google Chrome executable.
+WillAI-C uses the Chromium engine bundled with Electron. It does not launch or wrap the separately installed Google Chrome executable.
 
 **WillAI-E Extension is a separate WillAI-family product for Chrome and Firefox.** It is not a dependency of WillAI-C and is not included in this repository.
 
-## Current browser foundation
+## Current workspace-centered foundation
 
-- Chromium pages hosted in native Electron `WebContentsView` tabs.
-- Browser tab strip, address/search bar, back, forward, reload, new tab, and tab closing.
+- A workspace-first application shell with conversation navigation and a central work canvas.
+- Chromium pages hosted in native Electron `WebContentsView` tabs inside a separate browser dock.
+- Browser tab strip, address/search bar, back, forward, reload, new tab, and tab closing within the dock.
 - Persistent Chromium browser session partition for website sign-ins and site data.
 - Browser-controlled website permission prompts and download save dialogs.
-- Internal provider adapters for ChatGPT, Claude, and DeepSeek.
-- Captured Original Responses with editable Working Nodes.
+- Provider adapters for ChatGPT, Claude, and DeepSeek with visible adapter/capture diagnostics.
+- Original Responses and editable Working Nodes stored in the WillAI workspace.
 - Child nodes, provenance, deletion, and private-by-default node context.
 - Explicitly selected context can be inserted into the active AI prompt composer. WillAI-C does not send the prompt automatically.
 
@@ -64,7 +65,7 @@ The complete supplied feature list—including folders, conversation tree maps, 
 
 The architectural direction and module boundaries are recorded in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-The current code is a browser-first foundation, not the finished feature-complete product. The feature register explicitly distinguishes implemented from unimplemented capabilities. Live provider compatibility and packaged desktop builds still require manual verification.
+This is an early workspace-centered foundation, not the finished feature-complete product. Provider capture still requires manual compatibility testing against current logged-in provider pages. Automated build success does not establish that live provider capture works correctly on a user's Windows machine.
 
 ## Privacy and security
 
