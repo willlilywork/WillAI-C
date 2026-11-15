@@ -26,3 +26,12 @@ test('Search results route to their owning workspace and URL results open in Bro
   assert.match(app, /function activateSearchResult/);
   assert.match(app, /openBrowserUrl\(result\.url\)/);
 });
+
+test('Search snippets collapse whitespace and conversation notes open in Notes', () => {
+  const app = fs.readFileSync(path.join(root, 'src/renderer/App.tsx'), 'utf8');
+  assert.match(app, /replace\(\/\\s\+\/g, ' '\)/);
+  const start = app.indexOf('function activateSearchResult');
+  const end = app.indexOf('function runPaletteCommand', start);
+  const body = app.slice(start, end);
+  assert.ok(body.indexOf("result.kind === 'Note'") < body.indexOf('if (result.conversationId)'));
+});

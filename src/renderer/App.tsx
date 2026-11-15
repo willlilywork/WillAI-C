@@ -99,7 +99,7 @@ function App() {
     if (!query) return [];
     const results: WorkspaceSearchResult[] = [];
     const excerpt = (value: string) => {
-      const text = String(value || '').replace(/\\s+/g, ' ').trim();
+      const text = String(value || '').replace(/\s+/g, ' ').trim();
       const index = text.toLocaleLowerCase().indexOf(query);
       if (index < 0) return text.slice(0, 170);
       const start = Math.max(0, index - 58);
@@ -329,17 +329,18 @@ function App() {
   function activateSearchResult(result: WorkspaceSearchResult) {
     setSearchOpen(false);
     setGlobalSearchQuery('');
-    if (result.conversationId) {
-      const conversation = snapshot.conversations.find((item) => item.id === result.conversationId);
-      if (conversation) { openConversation(conversation); return; }
-    }
+    if (result.kind === 'Note') { navigateTo('notes'); return; }
+    if (result.kind === 'Prompt' || result.kind === 'Prompt History') { navigateTo('prompts'); return; }
     if (result.kind === 'Conversation') {
       const conversation = snapshot.conversations.find((item) => item.id === result.id);
       if (conversation) openConversation(conversation);
       return;
     }
-    if (result.kind === 'Prompt' || result.kind === 'Prompt History') { navigateTo('prompts'); return; }
-    if (result.kind === 'Note') { navigateTo('notes'); return; }
+    if (result.conversationId) {
+      const conversation = snapshot.conversations.find((item) => item.id === result.conversationId);
+      if (conversation) openConversation(conversation);
+      return;
+    }
     if ((result.kind === 'Bookmark' || result.kind === 'Browser History') && result.url) void openBrowserUrl(result.url);
   }
 
