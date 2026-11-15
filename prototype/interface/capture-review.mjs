@@ -17,6 +17,8 @@ async function shot(page, name) { await page.screenshot({ path: path.join(output
 async function clickDest(page, dest) {
   await page.locator('.rail-btn[data-dest="' + dest + '"]').click();
   await page.waitForTimeout(100);
+  const viewport = page.viewportSize();
+  await page.mouse.move(viewport.width - 16, viewport.height - 16);
 }
 try {
   const page = await startPage(1440, 900);
@@ -51,6 +53,7 @@ try {
   await page.locator('[data-action="explain"]').click();
   assert.ok((await page.locator('#document').innerText()).includes('AI-generated child'));
   await shot(page, '07-child-artifact-1440x900.png');
+  await page.waitForFunction(() => !document.querySelector('#toastRoot .toast'), { timeout: 5000 });
   await clickDest(page, 'browser');
   await shot(page, '08-browser-session-1440x900.png');
   await clickDest(page, 'prompts');
