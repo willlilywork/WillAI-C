@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { parseMarkdownNodes } = require('./markdown-nodes.cjs');
+const Database = require('better-sqlite3');
 
 const SUPPORTED_PROVIDERS = new Set(['chatgpt', 'claude', 'deepseek']);
 const MAX_TEXT_LENGTH = 120_000;
@@ -49,28 +50,157 @@ class LocalStore {
   constructor(userDataPath) {
     this.directory = userDataPath;
     this.filePath = path.join(userDataPath, 'willai-c-data.json');
+    this.databasePath = path.join(userDataPath, 'willai-c-data.sqlite3');
+    this.legacyBackupPath = this.filePath + '.migrated-backup';
     fs.mkdirSync(userDataPath, { recursive: true });
-    this.state = this.load();
-    if (!fs.existsSync(this.filePath) || this.needsPersist) this.persist();
+
+    this.db = new Database(this.databasePath);
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('synchronous = NORMAL');
+    this.db.pragma('foreign_keys = ON');
+    this.db.pragma('busy_timeout = 5000');
+    this.migrateSchema();
+
+    const initialized = this.db.prepare("SELECT value FROM app_metadata WHERE key = 'storage_initialized'").get();
+    if (initialized) {
+      this.state = this.loadDatabaseState();
+    } else {
+      this.state = this.loadLegacyState();
+      this.persist();
+      if (fs.existsSync(this.filePath) && !fs.existsSync(this.legacyBackupPath)) {
+        try { fs.copyFileSync(this.filePath, this.legacyBackupPath); } catch (error) {
+          console.warn('WillAI-C could not create the legacy JSON backup:', error.message);
+        }
+      }
+    }
   }
 
-  load() {
-    if (!fs.existsSync(this.filePath)) {
-      return {
-        schemaVersion: 1,
-        dataVersion: 2,
-        bridgeToken: crypto.randomBytes(32).toString('hex'),
-        conversations: [],
-        folders: [],
-        prompts: [],
-        promptHistory: [],
-        notes: [],
-        bookmarks: [],
-        browserHistory: [],
-        promptQueue: [],
-        settings: { autoArchiveDays: 0, autoDeleteDays: 0 },
-      };
-    }
+  defaultState() {
+    return {
+      schemaVersion: 1,
+      dataVersion: 2,
+      bridgeToken: crypto.randomBytes(32).toString('hex'),
+      conversations: [],
+      folders: [],
+      prompts: [],
+      promptHistory: [],
+      notes: [],
+      bookmarks: [],
+      browserHistory: [],
+      promptQueue: [],
+      settings: { autoArchiveDays: 0, autoDeleteDays: 0 },
+    };
+  }
+
+  migrateSchema() {
+    const version = Number(this.db.pragma('user_version', { simple: true })) || 0;
+    if (version > 1) throw new Error('This WillAI-C database was created by a newer application version.');
+    if (version === 1) return;
+
+    const createSchema = this.db.transaction(() => {
+      this.db.exec('CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+      this.db.exec(
+        'CREATE TABLE IF NOT EXISTS folders (' +
+        'id TEXT PRIMARY KEY, parent_id TEXT, name TEXT NOT NULL, position INTEGER NOT NULL, ' +
+        'color TEXT, icon TEXT, payload_json TEXT NOT NULL, ' +
+        'FOREIGN KEY(parent_id) REFERENCES folders(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED)'
+      );
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_folders_parent_position ON folders(parent_id, position)');
+      this.db.exec(
+        'CREATE TABLE IF NOT EXISTS conversations (' +
+        'id TEXT PRIMARY KEY, provider TEXT NOT NULL, title TEXT NOT NULL, source_url TEXT NOT NULL, ' +
+        'created_at TEXT NOT NULL, updated_at TEXT NOT NULL, folder_id TEXT, pinned INTEGER NOT NULL DEFAULT 0, ' +
+        'archived_at TEXT, temporary INTEGER NOT NULL DEFAULT 0, payload_json TEXT NOT NULL, ' +
+        'FOREIGN KEY(folder_id) REFERENCES folders(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED)'
+      );
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC)');
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_conversations_folder ON conversations(folder_id, updated_at DESC)');
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_conversations_provider ON conversations(provider, updated_at DESC)');
+      this.db.exec(
+        'CREATE TABLE IF NOT EXISTS responses (' +
+        'id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, source_message_id TEXT, captured_at TEXT NOT NULL, ' +
+        'position INTEGER NOT NULL DEFAULT 0, original_content TEXT NOT NULL, pinned INTEGER NOT NULL DEFAULT 0, ' +
+        'payload_json TEXT NOT NULL, ' +
+        'FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED)'
+      );
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_responses_conversation ON responses(conversation_id, position)');
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_responses_source_message ON responses(source_message_id)');
+      this.db.exec(
+        'CREATE TABLE IF NOT EXISTS working_nodes (' +
+        'id TEXT PRIMARY KEY, response_id TEXT NOT NULL, parent_id TEXT, position INTEGER NOT NULL DEFAULT 0, ' +
+        'sequence INTEGER NOT NULL DEFAULT 0, content TEXT NOT NULL, node_type TEXT, ' +
+        'include_in_model_context INTEGER NOT NULL DEFAULT 0, provenance TEXT, deleted_at TEXT, payload_json TEXT NOT NULL, ' +
+        'FOREIGN KEY(response_id) REFERENCES responses(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED, ' +
+        'FOREIGN KEY(parent_id) REFERENCES working_nodes(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED)'
+      );
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_nodes_outline ON working_nodes(response_id, parent_id, position)');
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_nodes_context ON working_nodes(response_id, include_in_model_context, deleted_at)');
+      this.db.exec(
+        'CREATE TABLE IF NOT EXISTS prompts (' +
+        'id TEXT PRIMARY KEY, title TEXT NOT NULL, category TEXT, favorite INTEGER NOT NULL DEFAULT 0, ' +
+        'usage_count INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, payload_json TEXT NOT NULL)'
+      );
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_prompts_updated ON prompts(updated_at DESC)');
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_prompts_favorite ON prompts(favorite, updated_at DESC)');
+      this.db.exec(
+        'CREATE TABLE IF NOT EXISTS prompt_history (' +
+        'id TEXT PRIMARY KEY, prompt_id TEXT, prompt_title TEXT NOT NULL, provider TEXT, content TEXT NOT NULL, ' +
+        'used_at TEXT NOT NULL, payload_json TEXT NOT NULL, ' +
+        'FOREIGN KEY(prompt_id) REFERENCES prompts(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED)'
+      );
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_prompt_history_used ON prompt_history(used_at DESC)');
+      this.db.exec(
+        'CREATE TABLE IF NOT EXISTS notes (' +
+        'id TEXT PRIMARY KEY, conversation_id TEXT, title TEXT NOT NULL, content TEXT NOT NULL, ' +
+        'pinned INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, payload_json TEXT NOT NULL, ' +
+        'FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED)'
+      );
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(updated_at DESC)');
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_notes_conversation ON notes(conversation_id, updated_at DESC)');
+      this.db.exec(
+        'CREATE TABLE IF NOT EXISTS bookmarks (' +
+        'id TEXT PRIMARY KEY, name TEXT NOT NULL, url TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, payload_json TEXT NOT NULL)'
+      );
+      this.db.exec(
+        'CREATE TABLE IF NOT EXISTS browser_history (' +
+        'id TEXT PRIMARY KEY, title TEXT NOT NULL, url TEXT NOT NULL, visited_at TEXT NOT NULL, payload_json TEXT NOT NULL)'
+      );
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_browser_history_visited ON browser_history(visited_at DESC)');
+      this.db.exec(
+        'CREATE TABLE IF NOT EXISTS prompt_queue (' +
+        'id TEXT PRIMARY KEY, position INTEGER NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, ' +
+        'created_at TEXT NOT NULL, payload_json TEXT NOT NULL)'
+      );
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_prompt_queue_position ON prompt_queue(position)');
+      this.db.exec('CREATE TABLE IF NOT EXISTS workspace_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL)');
+      this.db.exec(
+        'CREATE TABLE IF NOT EXISTS search_documents (' +
+        'id TEXT PRIMARY KEY, kind TEXT NOT NULL, entity_id TEXT NOT NULL, conversation_id TEXT, ' +
+        'title TEXT NOT NULL, body TEXT NOT NULL)'
+      );
+      this.db.exec(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS workspace_fts USING fts5(title, body, content='search_documents', content_rowid='rowid', tokenize='unicode61 remove_diacritics 2')"
+      );
+      this.db.exec(
+        'CREATE TRIGGER IF NOT EXISTS search_documents_ai AFTER INSERT ON search_documents BEGIN ' +
+        'INSERT INTO workspace_fts(rowid, title, body) VALUES (new.rowid, new.title, new.body); END'
+      );
+      this.db.exec(
+        "CREATE TRIGGER IF NOT EXISTS search_documents_ad AFTER DELETE ON search_documents BEGIN " +
+        "INSERT INTO workspace_fts(workspace_fts, rowid, title, body) VALUES ('delete', old.rowid, old.title, old.body); END"
+      );
+      this.db.exec(
+        'CREATE TRIGGER IF NOT EXISTS search_documents_au AFTER UPDATE ON search_documents BEGIN ' +
+        "INSERT INTO workspace_fts(workspace_fts, rowid, title, body) VALUES ('delete', old.rowid, old.title, old.body); " +
+        'INSERT INTO workspace_fts(rowid, title, body) VALUES (new.rowid, new.title, new.body); END'
+      );
+      this.db.pragma('user_version = 1');
+    });
+    createSchema();
+  }
+
+  loadLegacyState() {
+    if (!fs.existsSync(this.filePath)) return this.defaultState();
 
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
@@ -96,36 +226,324 @@ class LocalStore {
       }
       for (const conversation of parsed.conversations) {
         if (!Array.isArray(conversation.referenceConversationIds)) conversation.referenceConversationIds = [];
+        if (!Array.isArray(conversation.responses)) conversation.responses = [];
         if (conversation.folderId === undefined) conversation.folderId = null;
         if (conversation.pinned === undefined) conversation.pinned = false;
         if (conversation.archivedAt === undefined) conversation.archivedAt = null;
         if (conversation.temporary === undefined) conversation.temporary = false;
+        for (const response of conversation.responses) {
+          if (!Array.isArray(response.nodes)) response.nodes = [];
+          for (const node of response.nodes) {
+            if (node.parentId === undefined) node.parentId = null;
+            if (node.deletedAt === undefined) node.deletedAt = null;
+            if (node.includeInModelContext === undefined) node.includeInModelContext = false;
+          }
+        }
       }
       return parsed;
     } catch (error) {
-      const backupPath = `${this.filePath}.corrupt-${Date.now()}`;
+      const backupPath = this.filePath + '.corrupt-' + Date.now();
       fs.renameSync(this.filePath, backupPath);
-      return {
-        schemaVersion: 1,
-        dataVersion: 2,
-        bridgeToken: crypto.randomBytes(32).toString('hex'),
-        conversations: [],
-        folders: [],
-        prompts: [],
-        promptHistory: [],
-        notes: [],
-        bookmarks: [],
-        browserHistory: [],
-        promptQueue: [],
-        settings: { autoArchiveDays: 0, autoDeleteDays: 0 },
-      };
+      return this.defaultState();
     }
   }
 
+  loadDatabaseState() {
+    const metadata = new Map(this.db.prepare('SELECT key, value FROM app_metadata').all().map((row) => [row.key, row.value]));
+    const state = this.defaultState();
+    state.bridgeToken = metadata.get('bridgeToken') || state.bridgeToken;
+    state.schemaVersion = Number(metadata.get('schemaVersion')) || 1;
+    state.dataVersion = Number(metadata.get('dataVersion')) || 2;
+
+    state.folders = this.db.prepare('SELECT payload_json FROM folders ORDER BY position, name').all().map((row) => JSON.parse(row.payload_json));
+
+    const conversations = new Map();
+    for (const row of this.db.prepare('SELECT payload_json FROM conversations ORDER BY updated_at DESC').all()) {
+      const conversation = JSON.parse(row.payload_json);
+      conversation.responses = [];
+      conversations.set(conversation.id, conversation);
+    }
+
+    const responses = new Map();
+    for (const row of this.db.prepare('SELECT id, conversation_id, payload_json FROM responses ORDER BY conversation_id, position').all()) {
+      const response = JSON.parse(row.payload_json);
+      response.nodes = [];
+      responses.set(row.id, response);
+      const conversation = conversations.get(row.conversation_id);
+      if (conversation) conversation.responses.push(response);
+    }
+
+    for (const row of this.db.prepare('SELECT response_id, payload_json FROM working_nodes ORDER BY response_id, sequence, position').all()) {
+      const node = JSON.parse(row.payload_json);
+      const response = [...responses.entries()].find(([id]) => id === row.response_id)?.[1];
+      if (response) response.nodes.push(node);
+    }
+
+    state.conversations = [...conversations.values()];
+    state.prompts = this.db.prepare('SELECT payload_json FROM prompts ORDER BY updated_at DESC').all().map((row) => JSON.parse(row.payload_json));
+    state.promptHistory = this.db.prepare('SELECT prompt_id, payload_json FROM prompt_history ORDER BY used_at DESC').all().map((row) => {
+      const item = JSON.parse(row.payload_json);
+      item.promptId = row.prompt_id;
+      return item;
+    });
+    state.notes = this.db.prepare('SELECT conversation_id, payload_json FROM notes ORDER BY updated_at DESC').all().map((row) => {
+      const item = JSON.parse(row.payload_json);
+      item.conversationId = row.conversation_id;
+      return item;
+    });
+    state.bookmarks = this.db.prepare('SELECT payload_json FROM bookmarks ORDER BY name COLLATE NOCASE').all().map((row) => JSON.parse(row.payload_json));
+    state.browserHistory = this.db.prepare('SELECT payload_json FROM browser_history ORDER BY visited_at DESC LIMIT 1000').all().map((row) => JSON.parse(row.payload_json));
+    state.promptQueue = this.db.prepare('SELECT payload_json FROM prompt_queue ORDER BY position').all().map((row) => JSON.parse(row.payload_json));
+    state.settings = Object.fromEntries(this.db.prepare('SELECT key, value_json FROM workspace_settings').all().map((row) => [row.key, JSON.parse(row.value_json)]));
+    if (!state.settings.autoArchiveDays) state.settings.autoArchiveDays = 0;
+    if (!state.settings.autoDeleteDays) state.settings.autoDeleteDays = 0;
+    return state;
+  }
+
   persist() {
-    const temporaryPath = `${this.filePath}.tmp`;
-    fs.writeFileSync(temporaryPath, JSON.stringify(this.state, null, 2), 'utf8');
-    fs.renameSync(temporaryPath, this.filePath);
+    const upsertFolder = this.db.prepare(
+      'INSERT INTO folders (id, parent_id, name, position, color, icon, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET parent_id=excluded.parent_id, name=excluded.name, position=excluded.position, color=excluded.color, icon=excluded.icon, payload_json=excluded.payload_json'
+    );
+    const upsertConversation = this.db.prepare(
+      'INSERT INTO conversations (id, provider, title, source_url, created_at, updated_at, folder_id, pinned, archived_at, temporary, payload_json) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET provider=excluded.provider, title=excluded.title, source_url=excluded.source_url, created_at=excluded.created_at, updated_at=excluded.updated_at, folder_id=excluded.folder_id, pinned=excluded.pinned, archived_at=excluded.archived_at, temporary=excluded.temporary, payload_json=excluded.payload_json'
+    );
+    const upsertResponse = this.db.prepare(
+      'INSERT INTO responses (id, conversation_id, source_message_id, captured_at, position, original_content, pinned, payload_json) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET conversation_id=excluded.conversation_id, source_message_id=excluded.source_message_id, captured_at=excluded.captured_at, position=excluded.position, original_content=excluded.original_content, pinned=excluded.pinned, payload_json=excluded.payload_json'
+    );
+    const upsertNode = this.db.prepare(
+      'INSERT INTO working_nodes (id, response_id, parent_id, position, sequence, content, node_type, include_in_model_context, provenance, deleted_at, payload_json) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET response_id=excluded.response_id, parent_id=excluded.parent_id, position=excluded.position, sequence=excluded.sequence, content=excluded.content, node_type=excluded.node_type, include_in_model_context=excluded.include_in_model_context, provenance=excluded.provenance, deleted_at=excluded.deleted_at, payload_json=excluded.payload_json'
+    );
+    const upsertPrompt = this.db.prepare(
+      'INSERT INTO prompts (id, title, category, favorite, usage_count, updated_at, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET title=excluded.title, category=excluded.category, favorite=excluded.favorite, usage_count=excluded.usage_count, updated_at=excluded.updated_at, payload_json=excluded.payload_json'
+    );
+    const upsertPromptHistory = this.db.prepare(
+      'INSERT INTO prompt_history (id, prompt_id, prompt_title, provider, content, used_at, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET prompt_id=excluded.prompt_id, prompt_title=excluded.prompt_title, provider=excluded.provider, content=excluded.content, used_at=excluded.used_at, payload_json=excluded.payload_json'
+    );
+    const upsertNote = this.db.prepare(
+      'INSERT INTO notes (id, conversation_id, title, content, pinned, updated_at, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET conversation_id=excluded.conversation_id, title=excluded.title, content=excluded.content, pinned=excluded.pinned, updated_at=excluded.updated_at, payload_json=excluded.payload_json'
+    );
+    const upsertBookmark = this.db.prepare(
+      'INSERT INTO bookmarks (id, name, url, created_at, payload_json) VALUES (?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET name=excluded.name, url=excluded.url, created_at=excluded.created_at, payload_json=excluded.payload_json'
+    );
+    const upsertHistory = this.db.prepare(
+      'INSERT INTO browser_history (id, title, url, visited_at, payload_json) VALUES (?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET title=excluded.title, url=excluded.url, visited_at=excluded.visited_at, payload_json=excluded.payload_json'
+    );
+    const upsertQueue = this.db.prepare(
+      'INSERT INTO prompt_queue (id, position, title, content, created_at, payload_json) VALUES (?, ?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET position=excluded.position, title=excluded.title, content=excluded.content, created_at=excluded.created_at, payload_json=excluded.payload_json'
+    );
+    const upsertSetting = this.db.prepare(
+      'INSERT INTO workspace_settings (key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json'
+    );
+    const upsertMetadata = this.db.prepare(
+      'INSERT INTO app_metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value'
+    );
+    const upsertSearchDocument = this.db.prepare(
+      'INSERT INTO search_documents (id, kind, entity_id, conversation_id, title, body) VALUES (?, ?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, entity_id=excluded.entity_id, conversation_id=excluded.conversation_id, title=excluded.title, body=excluded.body ' +
+      'WHERE search_documents.kind != excluded.kind OR search_documents.entity_id != excluded.entity_id OR ' +
+      'search_documents.conversation_id IS NOT excluded.conversation_id OR search_documents.title != excluded.title OR search_documents.body != excluded.body'
+    );
+
+    const removeMissing = (table, records) => {
+      const ids = new Set(records.map((record) => String(record.id)));
+      const remove = this.db.prepare('DELETE FROM ' + table + ' WHERE id = ?');
+      for (const row of this.db.prepare('SELECT id FROM ' + table).all()) {
+        if (!ids.has(row.id)) remove.run(row.id);
+      }
+    };
+    const without = (value, key) => {
+      const result = { ...value };
+      delete result[key];
+      return result;
+    };
+
+    const transaction = this.db.transaction(() => {
+      this.db.pragma('defer_foreign_keys = ON');
+
+      for (const folder of this.state.folders) {
+        upsertFolder.run(folder.id, folder.parentId || null, folder.name, folder.position || 0,
+          folder.color || '#8db69a', folder.icon || '▤', JSON.stringify(folder));
+      }
+      for (const conversation of this.state.conversations) {
+        const base = without(conversation, 'responses');
+        upsertConversation.run(conversation.id, conversation.provider, conversation.title, conversation.sourceUrl,
+          conversation.createdAt, conversation.updatedAt, conversation.folderId || null, Number(Boolean(conversation.pinned)),
+          conversation.archivedAt || null, Number(Boolean(conversation.temporary)), JSON.stringify(base));
+      }
+      for (const conversation of this.state.conversations) {
+        for (const [position, response] of (conversation.responses || []).entries()) {
+          const base = without(response, 'nodes');
+          upsertResponse.run(response.id, conversation.id, response.sourceMessageId || null, response.capturedAt,
+            Number(response.position ?? position), response.originalContent || '', Number(Boolean(response.pinned)), JSON.stringify(base));
+        }
+      }
+      for (const conversation of this.state.conversations) {
+        for (const response of conversation.responses || []) {
+          for (const node of response.nodes || []) {
+            upsertNode.run(node.id, response.id, node.parentId || null, Number(node.position) || 0,
+              Number(node.sequence ?? node.position) || 0, node.content || '', node.nodeType || 'paragraph',
+              Number(Boolean(node.includeInModelContext)), node.provenance || 'captured', node.deletedAt || null,
+              JSON.stringify(node));
+          }
+        }
+      }
+      for (const prompt of this.state.prompts) {
+        upsertPrompt.run(prompt.id, prompt.title, prompt.category || 'General', Number(Boolean(prompt.favorite)),
+          Number(prompt.usageCount) || 0, prompt.updatedAt || now(), JSON.stringify(prompt));
+      }
+      for (const item of this.state.promptHistory) {
+        upsertPromptHistory.run(item.id, item.promptId || null, item.promptTitle || '', item.provider || null,
+          item.content || '', item.usedAt || now(), JSON.stringify(item));
+      }
+      for (const note of this.state.notes) {
+        upsertNote.run(note.id, note.conversationId || null, note.title || '', note.content || '',
+          Number(Boolean(note.pinned)), note.updatedAt || now(), JSON.stringify(note));
+      }
+      for (const bookmark of this.state.bookmarks) {
+        upsertBookmark.run(bookmark.id, bookmark.name || '', bookmark.url, bookmark.createdAt || now(), JSON.stringify(bookmark));
+      }
+      for (const item of this.state.browserHistory) {
+        upsertHistory.run(item.id, item.title || '', item.url || '', item.visitedAt || now(), JSON.stringify(item));
+      }
+      for (const item of this.state.promptQueue) {
+        upsertQueue.run(item.id, Number(item.position) || 0, item.title || '', item.content || '',
+          item.createdAt || now(), JSON.stringify(item));
+      }
+      for (const [key, value] of Object.entries(this.state.settings || {})) {
+        upsertSetting.run(key, JSON.stringify(value));
+      }
+
+      removeMissing('working_nodes', this.state.conversations.flatMap((conversation) => (conversation.responses || []).flatMap((response) => response.nodes || [])));
+      removeMissing('responses', this.state.conversations.flatMap((conversation) => conversation.responses || []));
+      removeMissing('conversations', this.state.conversations);
+      removeMissing('folders', this.state.folders);
+      removeMissing('prompts', this.state.prompts);
+      removeMissing('prompt_history', this.state.promptHistory);
+      removeMissing('notes', this.state.notes);
+      removeMissing('bookmarks', this.state.bookmarks);
+      removeMissing('browser_history', this.state.browserHistory);
+      removeMissing('prompt_queue', this.state.promptQueue);
+      this.db.exec('DELETE FROM workspace_settings WHERE key NOT IN (' +
+        (Object.keys(this.state.settings || {}).length ? Object.keys(this.state.settings).map(() => '?').join(',') : "''") + ')');
+      if (Object.keys(this.state.settings || {}).length) {
+        this.db.prepare('DELETE FROM workspace_settings WHERE key NOT IN (' + Object.keys(this.state.settings).map(() => '?').join(',') + ')')
+          .run(...Object.keys(this.state.settings));
+      }
+
+      const searchDocuments = [];
+      const providerLabel = (provider) => ({ chatgpt: 'ChatGPT', claude: 'Claude', deepseek: 'DeepSeek' }[provider] || provider);
+      for (const conversation of this.state.conversations) {
+        searchDocuments.push({
+          id: 'conversation:' + conversation.id, kind: 'Conversation', entityId: conversation.id,
+          conversationId: conversation.id, title: conversation.title || 'Conversation', body: conversation.sourceUrl || '',
+        });
+        for (const response of conversation.responses || []) {
+          searchDocuments.push({
+            id: 'response:' + response.id, kind: 'Original Response', entityId: response.id,
+            conversationId: conversation.id, title: conversation.title || 'Conversation',
+            body: response.originalContent || '',
+          });
+          for (const node of response.nodes || []) {
+            if (node.deletedAt) continue;
+            searchDocuments.push({
+              id: 'node:' + node.id, kind: 'Working Node', entityId: node.id,
+              conversationId: conversation.id, title: conversation.title || 'Conversation', body: node.content || '',
+            });
+          }
+        }
+      }
+      for (const prompt of this.state.prompts) searchDocuments.push({
+        id: 'prompt:' + prompt.id, kind: 'Prompt', entityId: prompt.id, conversationId: null,
+        title: prompt.title || '', body: [prompt.content, prompt.category, ...(prompt.tags || [])].join(' '),
+      });
+      for (const item of this.state.promptHistory) searchDocuments.push({
+        id: 'prompt-history:' + item.id, kind: 'Prompt History', entityId: item.id, conversationId: null,
+        title: item.promptTitle || 'Previous prompt', body: item.content || '',
+      });
+      for (const note of this.state.notes) searchDocuments.push({
+        id: 'note:' + note.id, kind: 'Note', entityId: note.id, conversationId: note.conversationId || null,
+        title: note.title || 'Untitled note', body: note.content || '',
+      });
+      for (const bookmark of this.state.bookmarks) searchDocuments.push({
+        id: 'bookmark:' + bookmark.id, kind: 'Bookmark', entityId: bookmark.id, conversationId: null,
+        title: bookmark.name || bookmark.url, body: bookmark.url || '',
+      });
+      for (const item of this.state.browserHistory) searchDocuments.push({
+        id: 'history:' + item.id, kind: 'Browser History', entityId: item.id, conversationId: null,
+        title: item.title || item.url, body: item.url || '',
+      });
+      for (const item of searchDocuments) upsertSearchDocument.run(item.id, item.kind, item.entityId,
+        item.conversationId, item.title, item.body);
+      removeMissing('search_documents', searchDocuments.map((item) => ({ id: item.id })));
+
+      this.state.schemaVersion = 1;
+      this.state.dataVersion = 2;
+      upsertMetadata.run('schemaVersion', String(this.state.schemaVersion));
+      upsertMetadata.run('dataVersion', String(this.state.dataVersion));
+      upsertMetadata.run('bridgeToken', String(this.state.bridgeToken || ''));
+      upsertMetadata.run('storage_initialized', '1');
+      upsertMetadata.run('storageEngine', 'sqlite');
+    });
+    transaction();
+  }
+
+  searchWorkspace(input, limit = 80) {
+    const query = cleanText(input, 400);
+    if (!query) return [];
+    const tokens = query.match(/[\p{L}\p{N}_-]+/gu) || [];
+    if (!tokens.length) return [];
+    const matchExpression = tokens.map((token) => '"' + token.replace(/"/g, '""') + '"*').join(' AND ');
+    const maxResults = Math.max(1, Math.min(80, Number(limit) || 80));
+    const rows = this.db.prepare(
+      'SELECT d.kind, d.entity_id, d.conversation_id, d.title, d.body, ' +
+      "snippet(workspace_fts, 1, '', '', '…', 18) AS excerpt " +
+      'FROM workspace_fts JOIN search_documents d ON d.rowid = workspace_fts.rowid ' +
+      'WHERE workspace_fts MATCH ? ORDER BY bm25(workspace_fts), d.title COLLATE NOCASE LIMIT ?'
+    ).all(matchExpression, maxResults);
+    return rows.map((row) => {
+      const conversation = row.conversation_id
+        ? this.state.conversations.find((item) => item.id === row.conversation_id)
+        : null;
+      const provider = conversation ? ({ chatgpt: 'ChatGPT', claude: 'Claude', deepseek: 'DeepSeek' }[conversation.provider] || conversation.provider) : null;
+      const subtitles = {
+        'Conversation': provider ? provider + ' · Conversation' : 'Conversation',
+        'Original Response': provider ? provider + ' · Original response' : 'Original response',
+        'Working Node': provider ? provider + ' · Working node' : 'Working node',
+        'Prompt': 'Saved prompt',
+        'Prompt History': 'Prompt history',
+        'Note': row.conversation_id ? 'Conversation note' : 'Global note',
+        'Bookmark': 'Saved website',
+        'Browser History': 'Browser history',
+      };
+      return {
+        id: row.entity_id,
+        kind: row.kind,
+        title: row.title,
+        subtitle: subtitles[row.kind] || row.kind,
+        excerpt: cleanText(row.excerpt || row.body || row.title, 500),
+        ...(row.conversation_id ? { conversationId: row.conversation_id } : {}),
+        ...(row.kind === 'Bookmark' || row.kind === 'Browser History' ? { url: row.body } : {}),
+      };
+    });
+  }
+
+  close() {
+    if (!this.db || !this.db.open) return;
+    try { this.db.pragma('wal_checkpoint(TRUNCATE)'); } catch {}
+    this.db.close();
   }
 
   getBridgeInfo() {
@@ -272,6 +690,7 @@ class LocalStore {
 
   deletePrompt(promptId) {
     this.state.prompts = this.state.prompts.filter((item) => item.id !== promptId);
+    for (const item of this.state.promptHistory) if (item.promptId === promptId) item.promptId = null;
     this.persist();
     return { ok: true };
   }
