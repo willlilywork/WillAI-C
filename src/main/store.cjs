@@ -256,34 +256,103 @@ class LocalStore {
     for (const key of collectionNames) if (!Array.isArray(this.state[key])) this.state[key] = [];
     if (!this.state.settings || typeof this.state.settings !== 'object') this.state.settings = { autoArchiveDays: 0, autoDeleteDays: 0 };
 
-    const folderIds = new Set(this.state.folders.map((item) => item.id));
+    this.state.folders = this.state.folders.filter((item) => item && typeof item === 'object');
     for (const folder of this.state.folders) {
-      if (folder.parentId && !folderIds.has(folder.parentId)) folder.parentId = null;
+      if (!folder.id) folder.id = crypto.randomUUID();
+      folder.name = cleanText(folder.name, 80) || 'Untitled folder';
+      folder.position = Number.isFinite(Number(folder.position)) ? Number(folder.position) : 0;
+      folder.color = /^#[0-9a-f]{6}$/i.test(String(folder.color || '')) ? folder.color : '#8db69a';
+      folder.icon = cleanText(folder.icon, 8) || '▤';
     }
+    const folderIds = new Set(this.state.folders.map((item) => item.id));
+    for (const folder of this.state.folders) if (folder.parentId && !folderIds.has(folder.parentId)) folder.parentId = null;
 
-    const conversationIds = new Set(this.state.conversations.map((item) => item.id));
-    const promptIds = new Set(this.state.prompts.map((item) => item.id));
+    this.state.conversations = this.state.conversations.filter((item) => item && typeof item === 'object');
     for (const conversation of this.state.conversations) {
-      if (!folderIds.has(conversation.folderId)) conversation.folderId = null;
+      if (!conversation.id) conversation.id = crypto.randomUUID();
+      conversation.provider = SUPPORTED_PROVIDERS.has(String(conversation.provider || '').toLowerCase())
+        ? String(conversation.provider).toLowerCase() : 'chatgpt';
+      conversation.title = cleanText(conversation.title, 240) || 'Untitled conversation';
+      conversation.sourceUrl = cleanText(conversation.sourceUrl, 2000);
+      conversation.createdAt = conversation.createdAt || now();
+      conversation.updatedAt = conversation.updatedAt || conversation.createdAt;
+      if (conversation.folderId && !folderIds.has(conversation.folderId)) conversation.folderId = null;
       if (!Array.isArray(conversation.responses)) conversation.responses = [];
       conversation.referenceConversationIds = [...new Set((conversation.referenceConversationIds || []))]
-        .filter((id) => conversationIds.has(id) && id !== conversation.id);
+        .filter((id) => id !== conversation.id);
       for (const response of conversation.responses) {
+        if (!response.id) response.id = crypto.randomUUID();
+        response.capturedAt = response.capturedAt || conversation.updatedAt;
+        response.originalContent = String(response.originalContent || '');
         if (!Array.isArray(response.nodes)) response.nodes = [];
-        const nodeIds = new Set(response.nodes.map((node) => node.id));
         for (const node of response.nodes) {
-          if (node.parentId && !nodeIds.has(node.parentId)) node.parentId = null;
+          if (!node.id) node.id = crypto.randomUUID();
+          node.content = String(node.content || '');
+          if (node.parentId && !response.nodes.some((candidate) => candidate.id === node.parentId)) node.parentId = null;
           if (node.includeInModelContext === undefined) node.includeInModelContext = false;
           if (node.deletedAt === undefined) node.deletedAt = null;
+          node.position = Number.isFinite(Number(node.position)) ? Number(node.position) : 0;
+          node.sequence = Number.isFinite(Number(node.sequence)) ? Number(node.sequence) : node.position;
+          node.nodeType = node.nodeType || 'paragraph';
+          node.provenance = node.provenance || 'captured';
+          node.updatedAt = node.updatedAt || response.capturedAt;
+          node.createdAt = node.createdAt || node.updatedAt;
         }
       }
     }
-    for (const note of this.state.notes) {
-      if (note.conversationId && !conversationIds.has(note.conversationId)) note.conversationId = null;
+
+    const conversationIds = new Set(this.state.conversations.map((item) => item.id));
+    for (const conversation of this.state.conversations) conversation.referenceConversationIds = conversation.referenceConversationIds.filter((id) => conversationIds.has(id));
+    this.state.prompts = this.state.prompts.filter((item) => item && typeof item === 'object');
+    for (const prompt of this.state.prompts) {
+      if (!prompt.id) prompt.id = crypto.randomUUID();
+      prompt.title = cleanText(prompt.title, 120) || 'Untitled prompt';
+      prompt.content = String(prompt.content || '');
+      prompt.category = cleanText(prompt.category, 60) || 'General';
+      prompt.favorite = Boolean(prompt.favorite);
+      prompt.usageCount = Number(prompt.usageCount) || 0;
+      prompt.tags = Array.isArray(prompt.tags) ? prompt.tags : [];
+      prompt.updatedAt = prompt.updatedAt || now();
+      prompt.createdAt = prompt.createdAt || prompt.updatedAt;
     }
+    const promptIds = new Set(this.state.prompts.map((item) => item.id));
     for (const item of this.state.promptHistory) {
+      if (!item.id) item.id = crypto.randomUUID();
+      item.promptTitle = String(item.promptTitle || 'Previous prompt');
+      item.content = String(item.content || '');
+      item.usedAt = item.usedAt || now();
       if (item.promptId && !promptIds.has(item.promptId)) item.promptId = null;
     }
+    this.state.notes = this.state.notes.filter((item) => item && typeof item === 'object');
+    for (const note of this.state.notes) {
+      if (!note.id) note.id = crypto.randomUUID();
+      note.title = cleanText(note.title, 120) || 'Untitled note';
+      note.content = String(note.content || '');
+      note.pinned = Boolean(note.pinned);
+      note.updatedAt = note.updatedAt || now();
+      note.createdAt = note.createdAt || note.updatedAt;
+      if (note.conversationId && !conversationIds.has(note.conversationId)) note.conversationId = null;
+    }
+    this.state.bookmarks = this.state.bookmarks.filter((item) => item && item.id && item.url);
+    for (const bookmark of this.state.bookmarks) {
+      bookmark.name = cleanText(bookmark.name, 160) || 'Saved website';
+      bookmark.createdAt = bookmark.createdAt || now();
+    }
+    this.state.browserHistory = this.state.browserHistory.filter((item) => item && item.id);
+    for (const item of this.state.browserHistory) {
+      item.title = cleanText(item.title, 200) || item.url || 'Website';
+      item.url = String(item.url || '');
+      item.visitedAt = item.visitedAt || now();
+    }
+    this.state.promptQueue = this.state.promptQueue.filter((item) => item && item.id);
+    for (const item of this.state.promptQueue) {
+      item.title = cleanText(item.title, 120) || 'Queued prompt';
+      item.content = String(item.content || '');
+      item.position = Number(item.position) || 0;
+      item.createdAt = item.createdAt || now();
+    }
+    this.state.settings.autoArchiveDays = Math.max(0, Number(this.state.settings.autoArchiveDays) || 0);
+    this.state.settings.autoDeleteDays = Math.max(0, Number(this.state.settings.autoDeleteDays) || 0);
     this.state.schemaVersion = 1;
     this.state.dataVersion = 2;
   }

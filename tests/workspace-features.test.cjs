@@ -213,7 +213,6 @@ test('legacy JSON migrates to SQLite and remains unchanged as a backup', () => {
   } finally {
     reopened?.close();
     store?.close();
-    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });

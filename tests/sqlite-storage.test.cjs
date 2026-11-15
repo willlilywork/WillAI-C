@@ -21,15 +21,11 @@ test('SQLite persists workspace data and provides indexed full-text search', () 
     store.savePrompt({ title: 'SQLite prompt', content: 'Inspect SQLite FTS indexing.' });
     store.saveNote({ title: 'Database decision', content: 'SQLite is the local source of truth.' });
     const response = store.getSnapshot().conversations[0].responses[0];
-    const node = response.nodes[0];
-    store.setNodeContext(node.id, true);
+    store.setNodeContext(response.nodes[0].id, true);
 
-    assert.ok(store.searchWorkspace('transactional local').some((item) =>
-      item.kind === 'Original Response' && item.conversationId === captured.conversationId));
-    assert.ok(store.searchWorkspace('FTS indexing').some((item) =>
-      item.kind === 'Prompt' && item.title === 'SQLite prompt'));
-    assert.ok(store.searchWorkspace('source truth').some((item) =>
-      item.kind === 'Note' && item.title === 'Database decision'));
+    assert.ok(store.searchWorkspace('transactional local').some((item) => item.kind === 'Original Response' && item.conversationId === captured.conversationId));
+    assert.ok(store.searchWorkspace('FTS indexing').some((item) => item.kind === 'Prompt' && item.title === 'SQLite prompt'));
+    assert.ok(store.searchWorkspace('source truth').some((item) => item.kind === 'Note' && item.title === 'Database decision'));
 
     const Database = require('better-sqlite3');
     const inspection = new Database(store.databasePath, { readonly: true });
