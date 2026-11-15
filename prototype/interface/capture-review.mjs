@@ -57,7 +57,9 @@ try {
   for (const size of [{w:1280,h:800},{w:1024,h:768},{w:900,h:700}]) {
     const p = await startPage(size.w, size.h);
     await shot(p, 'responsive-home-' + size.w + 'x' + size.h + '.png');
-    await clickDest(p, 'workbench');
+    await clickDest(p, 'work');
+    await p.locator('[data-open-conv="c1"]').click();
+    await p.locator('[data-go="workbench"]').first().click();
     await shot(p, 'responsive-workbench-' + size.w + 'x' + size.h + '.png');
     await clickDest(p, 'browser');
     await shot(p, 'responsive-browser-' + size.w + 'x' + size.h + '.png');
