@@ -12,15 +12,6 @@ const providerUrls: Record<Provider, string> = {
   deepseek: 'https://chat.deepseek.com/',
 };
 
-function sourceKey(value: string) {
-  try {
-    const url = new URL(value);
-    return `${url.origin}${url.pathname}`.replace(/\/$/, '');
-  } catch {
-    return value;
-  }
-}
-
 function App() {
   const [browserState, setBrowserState] = useState<BrowserState>({ tabs: [], activeTabId: null });
   const [snapshot, setSnapshot] = useState<WillAISnapshot>({ conversations: [] });
