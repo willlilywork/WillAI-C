@@ -345,7 +345,7 @@ function navHtml(){
  if(d==='media')h='<div class="nav-section"><div class="nav-label">Media library</div><button class="nav-item active">▣ &nbsp; All media</button><button class="nav-item">▧ &nbsp; Images</button><button class="nav-item">♫ &nbsp; Audio</button><button class="nav-item">⇩ &nbsp; Downloads</button><button class="nav-item">▤ &nbsp; Export history</button></div>';
  $('#navContent').innerHTML=h;
 }
-function shellTitle(function shellTitle(title,sub){return '<div class="page-eyebrow">WILLAI-C WORKSPACE</div><h1 class="page-title">'+title+'</h1><p class="page-subtitle">'+sub+'</p>'}
+function shellTitle(title,sub){return '<div class="page-eyebrow">WILLAI-C WORKSPACE</div><h1 class="page-title">'+title+'</h1><p class="page-subtitle">'+sub+'</p>'}
 function rowConversation(c){return '<div class="row-item" data-open-conv="'+c.id+'">'+providerMark(c.provider)+'<div class="row-main"><strong>'+c.title+'</strong><small>'+c.provider+' · '+c.responses+' responses · '+c.folder+' · '+c.preview+'</small></div><div class="row-end"><span>'+c.updated+'</span><button class="icon-btn" aria-label="More actions" onclick="event.stopPropagation();notify(\'Conversation actions opened.\')">···</button></div></div>'}
 
 function safeText(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
