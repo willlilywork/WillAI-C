@@ -21,6 +21,17 @@ const providerIcons: Record<Provider, string> = {
   deepseek: '◈',
 };
 
+type WorkspaceSearchKind = 'Conversation' | 'Original Response' | 'Working Node' | 'Prompt' | 'Prompt History' | 'Note' | 'Bookmark' | 'Browser History';
+interface WorkspaceSearchResult {
+  id: string;
+  kind: WorkspaceSearchKind;
+  title: string;
+  subtitle: string;
+  excerpt: string;
+  conversationId?: string;
+  url?: string;
+}
+
 const markdownRenderer = new MarkdownIt({
   html: false,
   linkify: true,
@@ -68,6 +79,8 @@ function App() {
   const [contextPanelOpen, setContextPanelOpen] = useState(false);
   const [contextPanelTab, setContextPanelTab] = useState<'outline' | 'context'>('context');
   const [contextPanelWidth, setContextPanelWidth] = useState(340);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const hostRef = useRef<HTMLDivElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
 
@@ -80,6 +93,71 @@ function App() {
     () => snapshot.conversations.find((conversation) => conversation.id === activeConversationId) ?? null,
     [snapshot.conversations, activeConversationId],
   );
+
+  const globalSearchResults = useMemo((): WorkspaceSearchResult[] => {
+    const query = globalSearchQuery.trim().toLocaleLowerCase();
+    if (!query) return [];
+    const results: WorkspaceSearchResult[] = [];
+    const excerpt = (value: string) => {
+      const text = String(value || '').replace(/\\s+/g, ' ').trim();
+      const index = text.toLocaleLowerCase().indexOf(query);
+      if (index < 0) return text.slice(0, 170);
+      const start = Math.max(0, index - 58);
+      const end = Math.min(text.length, index + query.length + 92);
+      return (start ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '');
+    };
+
+    for (const conversation of snapshot.conversations) {
+      if (conversation.title.toLocaleLowerCase().includes(query)) {
+        results.push({ id: conversation.id, kind: 'Conversation', title: conversation.title,
+          subtitle: providerLabels[conversation.provider] + ' · Conversation',
+          excerpt: conversation.responses.length + ' original responses' });
+      }
+      conversation.responses.forEach((response, index) => {
+        if (response.originalContent.toLocaleLowerCase().includes(query)) {
+          results.push({ id: response.id, kind: 'Original Response', title: conversation.title + ' · Response ' + (index + 1),
+            subtitle: providerLabels[conversation.provider] + ' · Original response',
+            excerpt: excerpt(response.originalContent), conversationId: conversation.id });
+        }
+        response.nodes.filter((node) => !node.deletedAt && node.content.toLocaleLowerCase().includes(query)).forEach((node) => {
+          results.push({ id: node.id, kind: 'Working Node', title: conversation.title,
+            subtitle: providerLabels[conversation.provider] + ' · Working node',
+            excerpt: excerpt(node.content), conversationId: conversation.id });
+        });
+      });
+    }
+    snapshot.prompts.forEach((prompt) => {
+      if ((prompt.title + ' ' + prompt.content + ' ' + prompt.category + ' ' + prompt.tags.join(' ')).toLocaleLowerCase().includes(query)) {
+        results.push({ id: prompt.id, kind: 'Prompt', title: prompt.title, subtitle: prompt.category || 'Saved prompt', excerpt: excerpt(prompt.content) });
+      }
+    });
+    snapshot.promptHistory.forEach((item) => {
+      if ((item.promptTitle + ' ' + item.content).toLocaleLowerCase().includes(query)) {
+        results.push({ id: item.id, kind: 'Prompt History', title: item.promptTitle || 'Previous prompt',
+          subtitle: item.provider || 'Prompt history', excerpt: excerpt(item.content) });
+      }
+    });
+    snapshot.notes.forEach((note) => {
+      if ((note.title + ' ' + note.content).toLocaleLowerCase().includes(query)) {
+        results.push({ id: note.id, kind: 'Note', title: note.title || 'Untitled note',
+          subtitle: note.conversationId ? 'Conversation note' : 'Global note', excerpt: excerpt(note.content),
+          conversationId: note.conversationId || undefined });
+      }
+    });
+    snapshot.bookmarks.forEach((bookmark) => {
+      if ((bookmark.name + ' ' + bookmark.url).toLocaleLowerCase().includes(query)) {
+        results.push({ id: bookmark.id, kind: 'Bookmark', title: bookmark.name || bookmark.url,
+          subtitle: 'Saved website', excerpt: bookmark.url, url: bookmark.url });
+      }
+    });
+    snapshot.browserHistory.forEach((item) => {
+      if ((item.title + ' ' + item.url).toLocaleLowerCase().includes(query)) {
+        results.push({ id: item.id, kind: 'Browser History', title: item.title || item.url,
+          subtitle: 'Browser history', excerpt: item.url, url: item.url });
+      }
+    });
+    return results.slice(0, 80);
+  }, [snapshot, globalSearchQuery]);
 
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -237,6 +315,51 @@ function App() {
     };
   }, [updateBounds, browserOpen, loading]);
 
+  async function openBrowserUrl(url: string) {
+    navigateTo('browser');
+    const existing = browserState.tabs.find((tab) => tab.url === url);
+    try {
+      if (existing) await window.willai.activateTab(existing.id);
+      else await window.willai.createTab(url);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not open this search result.');
+    }
+  }
+
+  function activateSearchResult(result: WorkspaceSearchResult) {
+    setSearchOpen(false);
+    setGlobalSearchQuery('');
+    if (result.conversationId) {
+      const conversation = snapshot.conversations.find((item) => item.id === result.conversationId);
+      if (conversation) { openConversation(conversation); return; }
+    }
+    if (result.kind === 'Conversation') {
+      const conversation = snapshot.conversations.find((item) => item.id === result.id);
+      if (conversation) openConversation(conversation);
+      return;
+    }
+    if (result.kind === 'Prompt' || result.kind === 'Prompt History') { navigateTo('prompts'); return; }
+    if (result.kind === 'Note') { navigateTo('notes'); return; }
+    if ((result.kind === 'Bookmark' || result.kind === 'Browser History') && result.url) void openBrowserUrl(result.url);
+  }
+
+  function runPaletteCommand(command: 'newchat' | 'home' | 'work' | 'prompts' | 'notes' | 'browser') {
+    setSearchOpen(false);
+    setGlobalSearchQuery('');
+    navigateTo(command);
+  }
+
+  useEffect(() => {
+    const handleGlobalShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalShortcut);
+    return () => window.removeEventListener('keydown', handleGlobalShortcut);
+  }, []);
+
   async function navigate(value = address) {
     try {
       await window.willai.navigate(value);
@@ -383,10 +506,14 @@ function App() {
         <div className="header-location"><span className="header-product">WORKSPACE</span><span className="header-caption">{pageTitle}</span></div>
         <div className="header-actions">
           {workspaceView !== 'browser' && <button type="button" className={'header-secondary' + (contextPanelOpen ? ' active' : '')} onClick={() => setContextPanelOpen((value) => !value)} disabled={!activeConversation} title="Toggle Context Panel">{contextPanelOpen ? 'Hide context' : 'Context'}</button>}
+          <button type="button" className="header-secondary" onClick={() => setSearchOpen(true)} title="Search · Ctrl+K">Search <kbd>Ctrl K</kbd></button>
           <button type="button" className="header-secondary" onClick={() => navigateTo('browser')}>Open browser</button>
           <button type="button" className="header-primary" onClick={() => navigateTo('newchat')}>＋ New conversation</button>
         </div>
       </header>
+      {searchOpen && <SearchPalette query={globalSearchQuery} onQueryChange={setGlobalSearchQuery}
+        results={globalSearchResults} onSelect={activateSearchResult} onCommand={runPaletteCommand}
+        onClose={() => { setSearchOpen(false); setGlobalSearchQuery(''); }} />}
       {notice && <button className="workspace-notice" type="button" onClick={() => setNotice('')} title="Dismiss notification"><span>{notice}</span><b>×</b></button>}
 
       <div className={'workspace-layout' + (contextPanelOpen && workspaceView !== 'browser' ? ' has-context-panel' : '')} style={{ '--sidebar-width': panelSizes.sidebar + 'px', '--context-width': contextPanelWidth + 'px' } as CSSProperties}>
@@ -552,6 +679,95 @@ function App() {
     </div>
   );
 
+}
+
+function SearchPalette({
+  query,
+  onQueryChange,
+  results,
+  onSelect,
+  onCommand,
+  onClose,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  results: WorkspaceSearchResult[];
+  onSelect: (result: WorkspaceSearchResult) => void;
+  onCommand: (command: 'newchat' | 'home' | 'work' | 'prompts' | 'notes' | 'browser') => void;
+  onClose: () => void;
+}) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const commands = [
+    { id: 'newchat' as const, label: 'New Conversation', hint: 'Start a new provider request', icon: '＋' },
+    { id: 'home' as const, label: 'Home', hint: 'Open workspace overview', icon: '⌂' },
+    { id: 'work' as const, label: 'Work', hint: 'Browse saved conversations', icon: '▤' },
+    { id: 'prompts' as const, label: 'Prompts', hint: 'Open the prompt library', icon: '✎' },
+    { id: 'notes' as const, label: 'Notes', hint: 'Open notes', icon: '▧' },
+    { id: 'browser' as const, label: 'Browser', hint: 'Open signed-in browser tabs', icon: '◉' },
+  ];
+  useEffect(() => setActiveIndex(0), [query, results.length]);
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    const count = query.trim() ? results.length : commands.length;
+    if (event.key === 'ArrowDown' && count) { event.preventDefault(); setActiveIndex((index) => (index + 1) % count); }
+    if (event.key === 'ArrowUp' && count) { event.preventDefault(); setActiveIndex((index) => (index - 1 + count) % count); }
+    if (event.key === 'Enter' && count) {
+      event.preventDefault();
+      if (query.trim()) onSelect(results[Math.min(activeIndex, results.length - 1)]);
+      else onCommand(commands[Math.min(activeIndex, commands.length - 1)].id);
+    }
+    if (event.key === 'Escape') { event.preventDefault(); onClose(); }
+  }
+
+  return (
+    <div className="search-palette-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="search-palette" role="dialog" aria-modal="true" aria-label="Global Search and Command Palette">
+        <div className="search-palette-input-row">
+          <span className="search-palette-icon">⌕</span>
+          <input autoFocus value={query} onChange={(event) => onQueryChange(event.target.value)}
+            onKeyDown={handleKeyDown} placeholder="Search conversations, responses, nodes, prompts, notes and websites…" />
+          <kbd>ESC</kbd>
+        </div>
+        <div className="search-palette-body">
+          {query.trim() ? (
+            results.length ? (
+              <div className="search-result-list">
+                {results.map((result, index) => (
+                  <button type="button" key={result.kind + ':' + result.id}
+                    className={'search-result-row' + (index === activeIndex ? ' selected' : '')}
+                    onMouseEnter={() => setActiveIndex(index)} onClick={() => onSelect(result)}>
+                    <span className="search-result-kind">{result.kind}</span>
+                    <span className="search-result-copy">
+                      <strong>{result.title}</strong>
+                      <small>{result.subtitle}</small>
+                      {result.excerpt && <span>{result.excerpt}</span>}
+                    </span>
+                    <span className="search-result-enter">↵</span>
+                  </button>
+                ))}
+              </div>
+            ) : <div className="search-palette-empty">No matching items found in your local workspace.</div>
+          ) : (
+            <>
+              <div className="search-palette-section-label">COMMANDS</div>
+              <div className="search-result-list">
+                {commands.map((command, index) => (
+                  <button type="button" key={command.id}
+                    className={'search-command-row' + (index === activeIndex ? ' selected' : '')}
+                    onMouseEnter={() => setActiveIndex(index)} onClick={() => onCommand(command.id)}>
+                    <span className="search-command-icon">{command.icon}</span>
+                    <span><strong>{command.label}</strong><small>{command.hint}</small></span>
+                    {index === activeIndex && <span className="search-result-enter">↵</span>}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <footer className="search-palette-footer"><span>↑↓ Navigate</span><span>Enter Open</span><span>Esc Close</span><span>Ctrl K Search</span></footer>
+      </section>
+    </div>
+  );
 }
 
 function ContextPanel({
