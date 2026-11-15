@@ -195,6 +195,7 @@ class BrowserController {
     });
     contents.on('did-start-loading', () => {
       tab.isLoading = true;
+      tab.captureStatus = null;
       this.emitState();
     });
     contents.on('did-stop-loading', () => {
@@ -285,7 +286,7 @@ class BrowserController {
   }
 
   waitForProviderAdapter(tab, timeoutMs = 25000) {
-    const readyStates = new Set(['ready', 'no-message-elements', 'message-elements-found', 'response-sent']);
+    const readyStates = new Set(['ready', 'no-message-elements', 'message-elements-found', 'response-sent', 'capture-error']);
     if (tab.captureStatus && readyStates.has(tab.captureStatus.state)) return Promise.resolve();
     if (!tab.view || tab.view.webContents.isDestroyed()) return Promise.reject(new Error('The provider tab was closed before it became ready.'));
 
@@ -377,7 +378,7 @@ class BrowserController {
     return true;
   }
 
-  requestProviderRescan() {
+  async requestProviderRescan() {
     const tab = this.getActiveTab();
     if (!tab || tab.view.webContents.isDestroyed()) {
       return { ok: false, error: 'Open a supported provider conversation in the Browser workspace first.' };
@@ -387,10 +388,14 @@ class BrowserController {
     const provider = providerFromUrl(url);
     if (!provider) return { ok: false, error: 'The active browser tab is not a supported AI provider.' };
     try {
+      await this.waitForProviderAdapter(tab);
+      if (tab.view.webContents.isDestroyed()) {
+        return { ok: false, error: 'The provider tab was closed before its conversation could be scanned.' };
+      }
       tab.view.webContents.send('willai:rescan-provider-conversation');
       return { ok: true, provider };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : 'Could not request a provider conversation scan.' };
+      return { ok: false, error: error instanceof Error ? error.message : 'Could not prepare the provider conversation scan.' };
     }
   }
 
@@ -433,7 +438,7 @@ class BrowserController {
       message: String(payload.message || '').slice(0, 240),
       updatedAt: new Date().toISOString(),
     };
-    if (['ready', 'no-message-elements', 'message-elements-found', 'response-sent'].includes(state)) {
+    if (['ready', 'no-message-elements', 'message-elements-found', 'response-sent', 'capture-error'].includes(state)) {
       const waiters = this.adapterReadyWaiters.get(tab.id) || [];
       this.adapterReadyWaiters.delete(tab.id);
       for (const waiter of waiters) waiter.finish();

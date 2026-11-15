@@ -712,3 +712,5 @@ body, .willai-app { background: var(--bg); color: var(--text); }
 .capture-rescan-button:disabled { opacity:.55; cursor:wait; }
 .capture-rescan-message, .capture-rescan-hint { flex:0 0 100%; color:#91a095; font-size:8px; line-height:1.4; }
 .capture-rescan-message { color:#c5d8c8; }
+
+.capture-status-panel { flex-wrap:wrap; }

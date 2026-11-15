@@ -65,3 +65,17 @@ test('capture event TypeScript contract includes response revisions and rescan A
   assert.ok(types.includes('updated?: boolean'));
   assert.ok(types.includes('rescanProviderConversation()'));
 });
+
+
+test('provider adapter readiness is reset after navigation and rescan waits for the new page', () => {
+  const browser = fs.readFileSync(path.join(root, 'src/main/browser.cjs'), 'utf8');
+  assert.ok(browser.includes('tab.captureStatus = null;'));
+  assert.ok(browser.includes("new Set(['ready', 'no-message-elements', 'message-elements-found', 'response-sent', 'capture-error'])"));
+  assert.ok(browser.includes('async requestProviderRescan()'));
+  assert.ok(browser.includes('await this.waitForProviderAdapter(tab)'));
+});
+
+test('capture status panel wraps its explicit extraction action and guidance', () => {
+  const css = fs.readFileSync(path.join(root, 'src/renderer/styles.css'), 'utf8');
+  assert.ok(css.includes('.capture-status-panel { flex-wrap:wrap; }'));
+});
