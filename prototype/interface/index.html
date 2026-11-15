@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WillAI-C · Interface Prototype</title>
+<style>
+:root{
+ --bg:#11151a;--panel:#171d24;--panel-2:#1d252e;--panel-3:#242e39;--hover:#283441;
+ --line:#303b47;--line-soft:#252f39;--text:#e8edf2;--sub:#a8b3bf;--muted:#7e8b99;
+ --accent:#8fc8a5;--accent-dim:rgba(143,200,165,.14);--brand:#d7b08a;
+ --blue:#8fb3dc;--purple:#b5a1e2;--yellow:#e2b36c;--red:#dd8989;
+ --shadow:0 20px 60px rgba(0,0,0,.34);--radius:9px;--font:Inter,"Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#app{height:100%;display:grid;grid-template-columns:64px 250px minmax(0,1fr);overflow:hidden}
+#app.with-inspector{grid-template-columns:64px 250px minmax(0,1fr) 326px}
+.rail{background:#12181f;border-right:1px solid var(--line-soft);display:flex;flex-direction:column;align-items:center;padding:13px 0 12px;gap:9px;z-index:4}
+.logo{width:38px;height:38px;border-radius:12px;background:linear-gradient(145deg,#253b32,#1b2925);border:1px solid #476251;color:#c8e6d1;display:grid;place-items:center;font-weight:800;font-size:19px;letter-spacing:-1px;margin-bottom:13px}
+.rail-btn{position:relative;width:42px;height:42px;border:0;border-radius:10px;background:transparent;color:var(--muted);display:grid;place-items:center;font-size:19px}
+.rail-btn:hover{background:var(--panel-2);color:var(--text)}
+.rail-btn.active{background:var(--accent-dim);color:var(--accent)}
+.rail-btn .tip{display:none;position:absolute;left:50px;white-space:nowrap;background:#26313b;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:12px;z-index:20;box-shadow:var(--shadow)}
+.rail-btn:hover .tip{display:block}
+.rail-spacer{flex:1}
+.rail-sep{width:30px;height:1px;background:var(--line);margin:5px 0}
+.nav-pane{background:var(--panel);border-right:1px solid var(--line-soft);display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.nav-head{height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid var(--line-soft);flex:0 0 auto}
+.nav-head strong{font-size:14px;font-weight:650;letter-spacing:.1px}
+.subtle-btn,.icon-btn{width:34px;height:34px;border:0;border-radius:8px;background:transparent;color:var(--sub);display:grid;place-items:center;font-size:17px}
+.subtle-btn:hover,.icon-btn:hover{background:var(--hover);color:var(--text)}
+.nav-scroll{overflow:auto;min-height:0;padding:13px 11px 18px}
+.nav-section{margin:9px 0 19px}
+.nav-label{display:flex;align-items:center;justify-content:space-between;padding:0 9px 8px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+.nav-item{width:100%;height:37px;border:0;border-radius:7px;background:transparent;display:flex;align-items:center;gap:10px;padding:0 10px;text-align:left;color:var(--sub);font-size:13px}
+.nav-item:hover{background:var(--panel-2);color:var(--text)}
+.nav-item.active{background:var(--accent-dim);color:#c9e6d2}
+.nav-item .count{margin-left:auto;color:var(--muted);font-size:12px}
+.nav-icon{width:18px;text-align:center;color:var(--muted);font-size:16px}
+.nav-item.active .nav-icon{color:var(--accent)}
+.nav-divider{height:1px;background:var(--line-soft);margin:13px 7px}
+.folder-item{display:flex;align-items:center;gap:8px;min-height:34px;padding:0 10px;border-radius:7px;color:var(--sub);font-size:13px;cursor:pointer}
+.folder-item:hover,.folder-item.active{background:var(--panel-2);color:var(--text)}
+.folder-dot{width:8px;height:8px;border-radius:3px;background:var(--blue)}
+.folder-item small{margin-left:auto;color:var(--muted)}
+.provider-item{display:flex;align-items:center;gap:9px;width:100%;min-height:36px;border:0;background:transparent;border-radius:7px;padding:0 9px;color:var(--sub);text-align:left}
+.provider-item:hover{background:var(--panel-2);color:var(--text)}
+.provider-mark{width:22px;height:22px;display:grid;place-items:center;border-radius:7px;background:#26342e;color:#a8d7ba;font-size:12px;font-weight:750}
+.provider-mark.claude{background:#3a3029;color:#e3b998}.provider-mark.deepseek{background:#27364c;color:#a9c6ea}
+.provider-item .state{margin-left:auto;color:var(--muted);font-size:11px}
+.nav-footer{padding:13px 15px;border-top:1px solid var(--line-soft);display:flex;align-items:center;gap:9px;color:var(--sub);font-size:12px}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px rgba(143,200,165,.1)}
+.main{display:flex;min-width:0;min-height:0;flex-direction:column;background:var(--bg);overflow:hidden}
+.topbar{height:58px;min-height:58px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:13px;padding:0 24px;background:rgba(20,26,33,.88)}
+.crumb{color:var(--muted);font-size:13px}.crumb strong{color:var(--text);font-weight:600}
+.topbar-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.top-action{height:34px;padding:0 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--sub);font-size:12px}
+.top-action:hover{border-color:#526373;color:var(--text)}
+.top-action.primary{background:#294335;border-color:#496a55;color:#d9efe0;font-weight:600}
+.top-icon{width:34px;height:34px;border:0;border-radius:8px;background:transparent;color:var(--sub);font-size:17px}
+.top-icon:hover{background:var(--panel-2);color:var(--text)}
+.canvas{flex:1;min-height:0;overflow:auto;padding:28px clamp(22px,3vw,46px) 44px}
+.canvas-inner{max-width:1120px;margin:0 auto}
+.page-eyebrow{color:var(--accent);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+.page-title{font-size:28px;line-height:1.2;font-weight:650;letter-spacing:-.035em;margin:8px 0 8px}
+.page-subtitle{font-size:14px;line-height:1.6;color:var(--sub);margin:0;max-width:760px}
+.section{margin-top:30px}
+.section-head{display:flex;align-items:end;justify-content:space-between;gap:15px;margin-bottom:13px}
+.section-head h2{font-size:17px;font-weight:620;margin:0}
+.section-head p{font-size:13px;color:var(--muted);margin:5px 0 0}
+.link-btn{border:0;background:transparent;color:var(--accent);font-size:13px;padding:6px}
+.card{background:var(--panel);border:1px solid var(--line-soft);border-radius:11px}
+.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:26px;padding:23px 25px;background:radial-gradient(ellipse at 88% 0%,rgba(91,148,113,.18),transparent 48%),linear-gradient(125deg,#1b2925,#192129 65%);border:1px solid #334b3d;border-radius:13px}
+.hero h1{font-size:29px;line-height:1.17;letter-spacing:-.04em;margin:8px 0 9px;max-width:590px}
+.hero p{font-size:14px;color:#b3c1b8;line-height:1.6;margin:0;max-width:620px}
+.hero-actions{display:flex;gap:9px;flex-wrap:wrap;flex:0 0 auto}
+.btn{height:38px;padding:0 14px;border:1px solid var(--line);background:var(--panel-2);border-radius:8px;color:var(--text);font-size:13px;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn:hover{background:var(--hover);border-color:#526273}
+.btn.primary{background:#2e4a39;border-color:#52745c;color:#e1f1e5;font-weight:600}
+.btn.primary:hover{background:#395a45}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--sub)}
+.btn.small{height:32px;padding:0 10px;font-size:12px}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.stat{padding:15px 17px}
+.stat-label{font-size:12px;color:var(--muted)}
+.stat-value{font-size:23px;font-weight:650;letter-spacing:-.03em;margin:8px 0 3px}
+.stat-detail{font-size:12px;color:var(--sub)}
+.work-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(270px,.9fr);gap:14px}
+.list{display:flex;flex-direction:column}
+.row-item{display:flex;align-items:center;gap:12px;padding:13px 15px;border-bottom:1px solid var(--line-soft);min-width:0}
+.row-item:last-child{border-bottom:0}
+.avatar{width:35px;height:35px;flex:0 0 35px;border-radius:10px;display:grid;place-items:center;background:#263a30;color:#a9d8ba;font-weight:700}
+.avatar.blue{background:#29384b;color:#a9c8e8}.avatar.purple{background:#3a304b;color:#c7b5ed}.avatar.amber{background:#413528;color:#e8c394}
+.row-main{min-width:0;flex:1}
+.row-main strong{font-size:13px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-main small{font-size:12px;color:var(--muted);display:block;margin-top:4px}
+.row-end{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border:1px solid var(--line);border-radius:100px;font-size:11px;color:var(--sub);white-space:nowrap}
+.badge.green{border-color:#405d4a;background:rgba(106,166,122,.1);color:#a8d6b4}
+.badge.yellow{border-color:#66543d;background:rgba(226,179,108,.08);color:#e6c38f}
+.badge.blue{border-color:#40536a;background:rgba(143,179,220,.08);color:#b6cce6}
+.quick-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.quick{min-height:90px;padding:13px;text-align:left;display:flex;flex-direction:column;gap:8px}
+.quick .qicon{font-size:18px;color:var(--accent)}
+.quick strong{font-size:13px}.quick small{font-size:12px;color:var(--muted)}
+.toolbar-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.searchbox{height:38px;min-width:200px;flex:1;display:flex;align-items:center;gap:9px;padding:0 11px;background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--muted)}
+.searchbox input{background:transparent;border:0;outline:none;min-width:0;flex:1;font-size:13px}
+.searchbox input::placeholder{color:#788491}
+.select{height:36px;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:0 10px;color:var(--sub);font-size:12px}
+.conversation-list{margin-top:14px;overflow:hidden}
+.conversation-list .row-item{cursor:pointer;transition:background .12s}
+.conversation-list .row-item:hover{background:var(--panel-2)}
+.checkbox{width:16px;height:16px;accent-color:var(--accent)}
+.list-icon{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:var(--panel-3);color:var(--sub)}
+.conversation-title{font-size:14px;font-weight:600}
+.two-col{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:15px}
+.timeline{display:flex;flex-direction:column;gap:15px}
+.message{padding:16px 18px}
+.message-head{display:flex;align-items:center;gap:9px;margin-bottom:11px}
+.message-head strong{font-size:13px;font-weight:620}.message-head small{font-size:12px;color:var(--muted)}
+.message-body{font-size:15px;line-height:1.72;color:#d8e0e7}
+.message-body h3{font-size:18px;margin:15px 0 7px;color:var(--text)}
+.message-body p{margin:8px 0}
+.message-body ul{padding-left:22px;margin:8px 0}
+.message-body li{margin:5px 0}
+.message-body pre{white-space:pre-wrap;background:#111820;border:1px solid #2d3945;border-radius:8px;padding:12px;font-size:13px;line-height:1.55;color:#c3d4e4}
+.message-body table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+.message-body th,.message-body td{border:1px solid var(--line);padding:8px 10px;text-align:left}
+.message-body th{background:#202a34;color:#e2eaf1}
+.message-actions{display:flex;gap:7px;margin-top:14px}
+.message-actions button{height:30px;padding:0 9px;border:1px solid var(--line-soft);border-radius:7px;background:transparent;color:var(--sub);font-size:12px}
+.message-actions button:hover{background:var(--panel-2);color:var(--text)}
+.small-panel{padding:15px}
+.small-panel h3{font-size:14px;margin:0 0 11px}
+.panel-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line-soft);font-size:13px;color:var(--sub)}
+.panel-row:last-child{border-bottom:0}
+.panel-row strong{color:var(--text);font-weight:560}
+.workbench-modes{display:flex;align-items:center;gap:4px;padding:4px;background:var(--panel);border:1px solid var(--line);border-radius:9px;width:max-content}
+.mode-btn{height:31px;padding:0 12px;border:0;border-radius:6px;background:transparent;color:var(--sub);font-size:12px}
+.mode-btn.active{background:#2b3b32;color:#d5eddd}
+.workbench-layout{display:grid;grid-template-columns:minmax(0,1fr) 255px;gap:16px;align-items:start;margin-top:18px}
+.document{max-width:880px;margin:0 auto;background:#171e25;border:1px solid var(--line-soft);border-radius:12px;padding:32px 42px;min-height:560px}
+.doc-meta{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:10px;margin-bottom:15px}
+.doc-title{font-size:27px;letter-spacing:-.035em;line-height:1.2;margin:0 0 9px}
+.doc-lede{font-size:16px;color:#b7c2cd;line-height:1.7;margin:0 0 25px}
+.doc-block{position:relative;border-radius:7px;padding:3px 8px 4px 12px;margin:7px 0;border-left:2px solid transparent;transition:background .12s,border-color .12s}
+.doc-block:hover{background:#202a34}
+.doc-block.selected{background:rgba(143,200,165,.09);border-left-color:var(--accent)}
+.doc-block[contenteditable="true"]:focus{outline:1px solid #668d70}
+.doc-block h3{font-size:19px;margin:17px 0 7px}.doc-block p{font-size:15px;line-height:1.72;margin:5px 0;color:#d5dee6}
+.doc-block ul{margin:6px 0;padding-left:21px;color:#d5dee6;line-height:1.7}
+.doc-block pre{white-space:pre-wrap;background:#111820;border:1px solid #2d3945;border-radius:8px;padding:12px;font-size:13px;color:#c3d4e4;line-height:1.55}
+.doc-block blockquote{margin:7px 0;padding:9px 14px;border-left:3px solid #708e7b;color:#b8c7be;background:#1d2925;border-radius:0 7px 7px 0}
+.doc-block table{border-collapse:collapse;width:100%;font-size:13px}.doc-block td,.doc-block th{border:1px solid var(--line);padding:8px;text-align:left}
+.doc-block.selected:after{content:"";position:absolute;right:6px;top:8px;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.doc-foot{border-top:1px solid var(--line-soft);margin-top:25px;padding-top:13px;color:var(--muted);font-size:12px;display:flex;justify-content:space-between}
+.inspector{background:var(--panel);border-left:1px solid var(--line-soft);min-width:0;display:flex;flex-direction:column;overflow:hidden}
+.inspector-head{height:58px;flex:0 0 58px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;padding:0 15px}
+.inspector-head strong{font-size:13px}
+.inspector-tabs{display:flex;gap:3px;padding:10px 11px;border-bottom:1px solid var(--line-soft)}
+.inspector-tab{flex:1;height:31px;border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:11px}
+.inspector-tab.active{background:var(--panel-3);color:var(--text)}
+.inspector-content{padding:15px;overflow:auto}
+.inspector-content h3{font-size:14px;margin:0 0 6px}
+.inspector-content p{font-size:12px;line-height:1.6;color:var(--sub);margin:0 0 15px}
+.context-item{display:flex;gap:9px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line-soft)}
+.context-item input{margin-top:3px;accent-color:var(--accent)}
+.context-item strong{font-size:12px;display:block}.context-item small{font-size:11px;color:var(--muted);display:block;margin-top:4px}
+.preview{padding:12px;background:#111820;border:1px solid var(--line);border-radius:8px;font-size:12px;line-height:1.6;color:#b6c4d2;white-space:pre-wrap;max-height:180px;overflow:auto}
+.block-tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.block-tools button{height:30px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--sub);font-size:11px}
+.block-tools button:hover{border-color:#617363;color:var(--text)}
+.browser-shell{height:100%;min-height:0;display:flex;flex-direction:column;padding:18px 22px 25px}
+.browser-top{display:flex;align-items:center;gap:9px;margin-bottom:13px}
+.browser-nav{display:flex;gap:4px}.browser-nav button{width:34px;height:34px;border:1px solid var(--line);background:var(--panel);border-radius:8px;color:var(--sub)}
+.browser-address{display:flex;align-items:center;gap:8px;flex:1;height:37px;padding:0 12px;border:1px solid var(--line);background:var(--panel);border-radius:8px;color:var(--sub)}
+.browser-address input{border:0;outline:0;background:transparent;min-width:0;flex:1;font-size:13px}
+.browser-tabs{display:flex;gap:5px;overflow:auto;margin-bottom:11px}
+.browser-tab{height:36px;min-width:130px;max-width:230px;padding:0 12px;border:1px solid var(--line-soft);background:var(--panel);border-radius:8px 8px 0 0;color:var(--sub);font-size:12px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.browser-tab.active{background:#202b34;border-color:#425463;color:var(--text)}
+.browser-frame{flex:1;min-height:260px;border:1px solid #394653;border-radius:9px;background:#f7f7f6;color:#20242a;overflow:auto;position:relative}
+.mock-browser-label{position:absolute;top:12px;right:12px;background:#fff0d6;border:1px solid #e1c38e;color:#7a5a23;border-radius:6px;padding:5px 8px;font-size:11px;font-weight:700}
+.provider-page{max-width:850px;margin:0 auto;padding:42px 40px 60px;font-family:Arial,sans-serif;color:#252b31}
+.provider-page h2{font-size:22px;margin:0 0 20px}
+.provider-page .provider-nav{display:flex;align-items:center;gap:10px;border-bottom:1px solid #e3e5e8;padding-bottom:14px;margin-bottom:25px}
+.provider-page .provider-nav b{font-size:16px}.provider-page .provider-nav span{font-size:13px;color:#65717d}
+.provider-chat{max-width:700px;margin:0 auto}
+.provider-chat .bubble{padding:18px 20px;border-radius:12px;background:#edf1ed;margin:15px 0;font-size:15px;line-height:1.65}
+.provider-chat .bubble.user{background:#f0f1f4;text-align:right}
+.provider-chat .composer{margin-top:34px;border:1px solid #cbd0d6;border-radius:13px;padding:14px;color:#87909b;font-size:14px}
+.provider-status{display:flex;align-items:center;gap:8px;margin-top:11px;color:var(--muted);font-size:12px}
+.editor-field{width:100%;border:1px solid var(--line);background:#111820;color:var(--text);border-radius:8px;padding:10px;font-size:13px}
+.note-grid{display:grid;grid-template-columns:260px minmax(0,1fr);gap:14px}
+.note-entry{padding:12px;border-bottom:1px solid var(--line-soft);cursor:pointer}
+.note-entry:hover,.note-entry.active{background:var(--panel-2)}
+.note-entry strong{font-size:13px;display:block}.note-entry small{font-size:12px;color:var(--muted);display:block;margin-top:5px}
+.note-editor{padding:20px}.note-editor textarea{width:100%;min-height:350px;resize:vertical;background:transparent;border:0;outline:none;color:var(--text);font:15px/1.75 var(--font)}
+.prompt-grid{display:grid;grid-template-columns:290px minmax(0,1fr);gap:14px}
+.prompt-list-item{padding:12px;border-bottom:1px solid var(--line-soft);cursor:pointer}
+.prompt-list-item:hover,.prompt-list-item.active{background:var(--panel-2)}
+.prompt-list-item strong{font-size:13px;display:block}.prompt-list-item small{font-size:12px;color:var(--muted);display:block;margin-top:5px}
+.overlay{position:fixed;inset:0;background:rgba(5,9,13,.68);z-index:50;display:flex;justify-content:center;align-items:flex-start;padding-top:14vh}
+.dialog{width:min(620px,calc(100vw - 34px));background:#1b242d;border:1px solid #41505d;border-radius:13px;box-shadow:var(--shadow);overflow:hidden}
+.dialog-search{height:58px;display:flex;align-items:center;gap:12px;padding:0 18px;border-bottom:1px solid var(--line)}
+.dialog-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:16px}
+.dialog-body{padding:12px;max-height:50vh;overflow:auto}
+.command-row{display:flex;align-items:center;gap:11px;padding:11px 10px;border-radius:8px;color:var(--sub);cursor:pointer}
+.command-row:hover{background:var(--panel-3);color:var(--text)}
+.command-row kbd{margin-left:auto;color:var(--muted);font-size:11px;border:1px solid var(--line);border-radius:5px;padding:3px 6px}
+.toast{position:fixed;right:24px;bottom:22px;background:#23352a;border:1px solid #52745c;color:#d7efde;padding:12px 16px;border-radius:9px;box-shadow:var(--shadow);z-index:90;font-size:13px}
+.empty{padding:30px;text-align:center;color:var(--muted)}
+.muted{color:var(--muted)}
+@media(max-width:1250px){
+ #app{grid-template-columns:60px 225px minmax(0,1fr)}
+ #app.with-inspector{grid-template-columns:60px 225px minmax(0,1fr)}
+ .inspector{position:fixed;right:0;top:0;bottom:0;width:min(340px,88vw);z-index:30;box-shadow:var(--shadow);display:none}
+ .inspector.open{display:flex}
+ .workbench-layout{grid-template-columns:minmax(0,1fr)}
+ .workbench-layout>.small-panel{display:none}
+}
+@media(max-width:1020px){
+ #app{grid-template-columns:60px minmax(0,1fr)}
+ .nav-pane{position:fixed;left:60px;top:0;bottom:0;width:260px;z-index:31;box-shadow:var(--shadow);display:none}
+ .nav-pane.open{display:flex}
+ #app.with-inspector{grid-template-columns:60px minmax(0,1fr)}
+ .two-col,.work-grid,.prompt-grid,.note-grid{grid-template-columns:minmax(0,1fr)}
+ .two-col>.sidecol{display:none}
+ .document{padding:25px 23px}
+}
+@media(max-width:720px){
+ .topbar{padding:0 13px}
+ .canvas{padding:18px 14px 32px}
+ .hero{align-items:flex-start;flex-direction:column}
+ .stats{grid-template-columns:1fr}
+ .hero-actions{width:100%}
+ .top-action.hide-small{display:none}
+ .page-title{font-size:24px}
+ .message-body{font-size:14px}
+ .document{padding:20px 15px}
+ .workbench-modes{width:100%;justify-content:space-between}
+ .mode-btn{padding:0 8px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+ <aside class="rail" aria-label="Global navigation">
+  <div class="logo">W</div>
+  <button class="rail-btn active" data-dest="home" aria-label="Home">⌂<span class="tip">Home</span></button>
+  <button class="rail-btn" data-dest="work" aria-label="Work">▤<span class="tip">Work</span></button>
+  <button class="rail-btn" data-dest="prompts" aria-label="Prompts">✳<span class="tip">Prompts</span></button>
+  <button class="rail-btn" data-dest="notes" aria-label="Notes">▧<span class="tip">Notes</span></button>
+  <button class="rail-btn" data-dest="media" aria-label="Media">▣<span class="tip">Media</span></button>
+  <button class="rail-btn" data-dest="browser" aria-label="Browser">◎<span class="tip">Browser</span></button>
+  <div class="rail-spacer"></div>
+  <button class="rail-btn" id="searchOpen" aria-label="Search">⌕<span class="tip">Search · Ctrl K</span></button>
+  <button class="rail-btn" aria-label="Settings" onclick="notify('Settings are represented as a prototype destination.')">⚙<span class="tip">Settings</span></button>
+  <div class="rail-sep"></div>
+  <button class="rail-btn" aria-label="Profile">◉<span class="tip">Local profile</span></button>
+ </aside>
+ <aside class="nav-pane" id="navPane">
+  <div class="nav-head"><strong id="navTitle">Workspace</strong><button class="subtle-btn" id="navClose" aria-label="Close navigation">×</button></div>
+  <div class="nav-scroll" id="navContent"></div>
+  <div class="nav-footer"><span class="status-dot"></span><span>Local workspace · mock data</span></div>
+ </aside>
+ <main class="main">
+  <header class="topbar">
+   <div class="crumb" id="breadcrumb"><strong>Home</strong></div>
+   <div class="topbar-actions">
+    <button class="top-action hide-small" id="globalSearch">⌕ &nbsp; Search <span class="muted">Ctrl K</span></button>
+    <button class="top-icon" id="contextToggle" aria-label="Toggle context panel" title="Toggle context panel">▤</button>
+    <button class="top-action primary" id="createAction">＋ &nbsp; Create</button>
+   </div>
+  </header>
+  <section class="canvas" id="canvas" aria-live="polite"></section>
+ </main>
+ <aside class="inspector" id="inspector">
+  <div class="inspector-head"><strong id="inspectorTitle">Context</strong><button class="subtle-btn" id="inspectorClose" aria-label="Close context panel">×</button></div>
+  <div class="inspector-tabs" id="inspectorTabs">
+   <button class="inspector-tab active" data-inspect="outline">Outline</button>
+   <button class="inspector-tab" data-inspect="assistant">Assistant</button>
+   <button class="inspector-tab" data-inspect="context">Context</button>
+  </div>
+  <div class="inspector-content" id="inspectorContent"></div>
+ </aside>
+</div>
+<div id="overlayRoot"></div><div id="toastRoot"></div>
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const $$=s=>Array.from(document.querySelectorAll(s));
+const state={dest:'home',inspector:false,inspectorMode:'outline',selectedBlock:'idea',wbMode:'working',browserTab:'ChatGPT · Research notes',browserUrl:'https://chatgpt.com/c/example',noteId:'n1',promptId:'p1',searchOpen:false};
+const conversations=[
+ {id:'c1',title:'Designing a knowledge workspace',provider:'ChatGPT',responses:8,updated:'12 min ago',folder:'Product research',color:'green',preview:'A workspace should preserve model output as source material while allowing independent edits.'},
+ {id:'c2',title:'Local-first application architecture',provider:'Claude',responses:5,updated:'Yesterday',folder:'Engineering',color:'amber',preview:'A local-first model can keep the core experience useful without a cloud account.'},
+ {id:'c3',title:'Information architecture patterns',provider:'DeepSeek',responses:12,updated:'Nov 13',folder:'Product research',color:'blue',preview:'Navigation should follow user objects and tasks, not implementation modules.'},
+ {id:'c4',title:'Prompt library taxonomy',provider:'ChatGPT',responses:4,updated:'Nov 12',folder:'Writing system',color:'purple',preview:'Reusable prompts need categories, variables, provenance, and version history.'},
+ {id:'c5',title:'Desktop application usability review',provider:'Claude',responses:3,updated:'Nov 10',folder:'Engineering',color:'amber',preview:'A desktop workspace needs a strong main canvas and optional secondary surfaces.'}
+];
+const prompts=[
+ {id:'p1',title:'Technical proposal reviewer',category:'Engineering',favorite:true,updated:'Used today',text:'Review the following proposal about {{system}}. Identify unclear assumptions, technical risks, and missing validation. Return findings grouped by severity.'},
+ {id:'p2',title:'Research synthesis',category:'Research',favorite:true,updated:'Used yesterday',text:'Synthesize the sources about {{topic}}. Separate verified facts, disagreements, and open questions. Cite each claim.'},
+ {id:'p3',title:'Rewrite for clarity',category:'Writing',favorite:false,updated:'Used Nov 12',text:'Improve the clarity and structure of the following text while preserving its meaning and factual claims.'},
+ {id:'p4',title:'Decision memo',category:'Planning',favorite:false,updated:'Used Nov 10',text:'Create a decision memo about {{decision}}. Compare options, constraints, risks, and a recommended next action.'}
+];
+const notes=[
+ {id:'n1',title:'Workspace principles',scope:'Global note',updated:'Today',text:'The workspace is the durable place where work accumulates. Provider conversations are source sessions, not the only home of the work.\\n\\nPreserve original material, keep edits separate, and make context sharing explicit.\\n\\nA response should be readable before it is transformed into smaller working blocks.'},
+ {id:'n2',title:'Workbench research notes',scope:'Conversation note',updated:'Yesterday',text:'Important requirements:\\n- Preserve Markdown structure\\n- Keep source anchors\\n- Make child AI results traceable\\n- Never submit shared context without the user action.'},
+ {id:'n3',title:'Ideas for search',scope:'Global note',updated:'Nov 13',text:'Search should span conversations, responses, notes, prompts, highlights, and browser history. Results should show the object type and a useful excerpt.'}
+];
+const docs=[
+ {id:'d1',title:'Response Workbench concept',type:'Working document',updated:'Edited 8 min ago',source:'Designing a knowledge workspace'},
+ {id:'d2',title:'Provider adapter reliability',type:'Working document',updated:'Yesterday',source:'Local-first application architecture'}
+];
+function providerMark(p){return '<span class="provider-mark '+(p==='Claude'?'claude':p==='DeepSeek'?'deepseek':'')+'">'+(p==='Claude'?'C':p==='DeepSeek'?'D':'✳')+'</span>'}
+function navHtml(){
+ let d=state.dest, title=d==='home'?'Workspace':d==='work'?'Work':d==='prompts'?'Prompts':d==='notes'?'Notes':d==='browser'?'Browser':d==='media'?'Media':'Workspace';
+ $('#navTitle').textContent=title;
+ let h='';
+ if(d==='home')h='<div class="nav-section"><div class="nav-label">Workspace</div><button class="nav-item active" data-view="home">⌂ &nbsp; Home</button><button class="nav-item" data-view="work">▤ &nbsp; All work <span class="count">24</span></button><button class="nav-item" data-view="browser">◎ &nbsp; Browser session</button></div><div class="nav-divider"></div><div class="nav-section"><div class="nav-label">Recent work</div>'+conversations.slice(0,4).map(c=>'<button class="nav-item" data-conv="'+c.id+'">'+providerMark(c.provider)+'<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+c.title+'</span></button>').join('')+'</div>';
+ if(d==='work')h='<div class="nav-section"><div class="nav-label">Library <button class="link-btn" onclick="notify(\\'Folder creation is prototype-only.\\')">＋</button></div><button class="nav-item active" data-filter="all">▤ &nbsp; All conversations <span class="count">24</span></button><button class="nav-item" data-filter="recent">◷ &nbsp; Recent</button><button class="nav-item" data-filter="starred">☆ &nbsp; Starred</button><button class="nav-item" data-filter="archived">▱ &nbsp; Archived</button></div><div class="nav-divider"></div><div class="nav-section"><div class="nav-label">Folders</div><div class="folder-item"><span class="folder-dot"></span>Product research<small>8</small></div><div class="folder-item"><span class="folder-dot" style="background:#d6a477"></span>Engineering<small>6</small></div><div class="folder-item"><span class="folder-dot" style="background:#ad9cdb"></span>Writing system<small>4</small></div><div class="folder-item"><span class="folder-dot" style="background:#86a9d5"></span>Personal<small>3</small></div></div>';
+ if(d==='prompts')h='<div class="nav-section"><div class="nav-label">Prompt library</div><button class="nav-item active">✳ &nbsp; All prompts <span class="count">18</span></button><button class="nav-item">☆ &nbsp; Favorites</button><button class="nav-item">◷ &nbsp; Recently used</button><button class="nav-item">＋ &nbsp; New prompt</button></div><div class="nav-divider"></div><div class="nav-section"><div class="nav-label">Categories</div>'+['Engineering','Research','Writing','Planning'].map(x=>'<button class="nav-item">'+x+'</button>').join('')+'</div><div class="nav-section"><div class="nav-label">Automation</div><button class="nav-item">☷ &nbsp; Queue <span class="count">3</span></button><button class="nav-item">⑂ &nbsp; Chains</button><button class="nav-item">⚙ &nbsp; Instruction profiles</button></div>';
+ if(d==='notes')h='<div class="nav-section"><div class="nav-label">Notes</div><button class="nav-item active">▧ &nbsp; All notes <span class="count">12</span></button><button class="nav-item">◎ &nbsp; Global notes</button><button class="nav-item">◷ &nbsp; Recent</button><button class="nav-item">↗ &nbsp; References</button></div><div class="nav-divider"></div><div class="nav-section"><div class="nav-label">Collections</div><button class="nav-item">Product ideas</button><button class="nav-item">Research</button><button class="nav-item">Reading notes</button></div>';
+ if(d==='browser')h='<div class="nav-section"><div class="nav-label">Sessions</div><button class="nav-item active" data-btab="ChatGPT · Research notes">'+providerMark('ChatGPT')+' ChatGPT session</button><button class="nav-item" data-btab="Claude · Architecture">'+providerMark('Claude')+' Claude session</button><button class="nav-item" data-btab="DeepSeek · New tab">'+providerMark('DeepSeek')+' DeepSeek session</button><button class="nav-item">＋ &nbsp; New tab</button></div><div class="nav-divider"></div><div class="nav-section"><div class="nav-label">Library</div><button class="nav-item">☆ &nbsp; Bookmarks</button><button class="nav-item">◷ &nbsp; History</button></div>';
+ if(d==='media')h='<div class="nav-section"><div class="nav-label">Media library</div><button class="nav-item active">▣ &nbsp; All media</button><button class="nav-item">▧ &nbsp; Images</button><button class="nav-item">♫ &nbsp; Audio</button><button class="nav-item">⇩ &nbsp; Downloads</button><button class="nav-item">▤ &nbsp; Export history</button></div>';
+ $('#navContent').innerHTML=h;
+}
+function shellTitle(title,sub){return '<div class="page-eyebrow">WILLAI-C WORKSPACE</div><h1 class="page-title">'+title+'</h1><p class="page-subtitle">'+sub+'</p>'}
+function rowConversation(c){return '<div class="row-item" data-open-conv="'+c.id+'">'+providerMark(c.provider)+'<div class="row-main"><strong>'+c.title+'</strong><small>'+c.provider+' · '+c.responses+' responses · '+c.folder+' · '+c.preview+'</small></div><div class="row-end"><span>'+c.updated+'</span><button class="icon-btn" aria-label="More actions" onclick="event.stopPropagation();notify(\\'Conversation actions opened.\\')">···</button></div></div>'}
+function homePage(){return '<div class="canvas-inner"><section class="hero"><div><div class="page-eyebrow">YOUR WORKSPACE</div><h1>Keep the work.<br>Not just the conversation.</h1><p>Capture ideas and answers from your AI sessions, shape them into useful material, and keep the original source intact.</p></div><div class="hero-actions"><button class="btn primary" data-go="work">Open your work</button><button class="btn" data-go="browser">Open AI provider ↗</button></div></section><div class="section stats"><div class="card stat"><div class="stat-label">Conversations</div><div class="stat-value">24</div><div class="stat-detail">Across 3 providers</div></div><div class="card stat"><div class="stat-label">Working documents</div><div class="stat-value">11</div><div class="stat-detail">3 edited this week</div></div><div class="card stat"><div class="stat-label">Saved notes</div><div class="stat-value">12</div><div class="stat-detail">Local to this workspace</div></div></div><div class="section work-grid"><div><div class="section-head"><div><h2>Continue working</h2><p>Pick up where you left off</p></div><button class="link-btn" data-go="work">View all →</button></div><div class="card list">'+docs.map((d,i)=>'<div class="row-item"><div class="avatar '+(i?'blue':'')+'">▤</div><div class="row-main"><strong>'+d.title+'</strong><small>'+d.type+' · from “'+d.source+'” · '+d.updated+'</small></div><button class="btn small" data-go="workbench">Open</button></div>').join('')+'</div><div class="section-head" style="margin-top:24px"><div><h2>Recent conversations</h2><p>Source sessions preserved in your library</p></div><button class="link-btn" data-go="work">All conversations →</button></div><div class="card list">'+conversations.slice(0,3).map(rowConversation).join('')+'</div></div><div><div class="section-head"><div><h2>Quick actions</h2><p>Start a new piece of work</p></div></div><div class="quick-grid"><button class="card quick" data-go="notes"><span class="qicon">▧</span><strong>New note</strong><small>Capture an idea</small></button><button class="card quick" data-go="prompts"><span class="qicon">✳</span><strong>Use a prompt</strong><small>Start from a template</small></button><button class="card quick" data-go="browser"><span class="qicon">◎</span><strong>Open provider</strong><small>Continue an AI session</small></button><button class="card quick" data-go="workbench"><span class="qicon">▤</span><strong>Open Workbench</strong><small>Edit a response</small></button></div><div class="section-head" style="margin-top:24px"><div><h2>Connection status</h2><p>Prototype environment</p></div></div><div class="card small-panel"><div class="panel-row"><span>Browser session</span><span class="badge blue">Mock session</span></div><div class="panel-row"><span>Provider adapter</span><span class="badge yellow">Not connected</span></div><div class="panel-row"><span>Capture status</span><span class="badge">No live capture</span></div><p style="font-size:12px;line-height:1.6;color:var(--muted);margin:12px 0 0">This prototype uses simulated screens and local mock data. It does not connect to provider accounts or capture real responses.</p></div></div></div></div>'}
+function workPage(){return '<div class="canvas-inner">'+shellTitle('Your work','Browse conversations and the material you have built from them. The provider session is a source, not the boundary of your workspace.')+'<div class="section toolbar-row"><div class="searchbox">⌕ <input id="workSearch" placeholder="Search conversations and response content"></div><select class="select" id="providerFilter"><option>All providers</option><option>ChatGPT</option><option>Claude</option><option>DeepSeek</option></select><select class="select"><option>Recently updated</option><option>Created date</option><option>Title</option></select><button class="btn small">☷ Filters</button></div><div class="section-head" style="margin-top:23px"><div><h2>Conversations</h2><p>24 conversations · 5 shown in this prototype</p></div><button class="btn small">＋ New folder</button></div><div class="card conversation-list" id="conversationList">'+conversations.map(rowConversation).join('')+'</div><div class="section work-grid"><div><div class="section-head"><div><h2>Working documents</h2><p>Editable material derived from original responses</p></div></div><div class="card list">'+docs.map(d=>'<div class="row-item"><div class="avatar">▤</div><div class="row-main"><strong>'+d.title+'</strong><small>'+d.source+' · '+d.updated+'</small></div><button class="btn small" data-go="workbench">Open</button></div>').join('')+'</div></div><div class="card small-panel"><h3>Library filters</h3><div class="panel-row"><span>Starred</span><strong>6</strong></div><div class="panel-row"><span>Archived</span><strong>3</strong></div><div class="panel-row"><span>Temporary</span><strong>2</strong></div><div class="panel-row"><span>Recently viewed</span><strong>9</strong></div></div></div></div>'}
+function conversationPage(){return '<div class="canvas-inner">'+shellTitle('Designing a knowledge workspace','ChatGPT · Product research · Updated 12 minutes ago')+'<div class="section toolbar-row"><button class="btn small" data-go="work">← Library</button><button class="btn small">☆ Pin conversation</button><button class="btn small">Export</button><button class="btn small" data-open-inspector="context">References · 2</button><span class="badge green">5 captured responses</span></div><div class="section two-col"><div class="timeline"><div class="card message"><div class="message-head"><div class="avatar blue">Y</div><strong>You</strong><small>10:42 AM</small></div><div class="message-body">I want the application to preserve AI outputs while making the content editable and reusable. How should the workspace be structured?</div></div><div class="card message"><div class="message-head"><div class="avatar">✳</div><strong>ChatGPT</strong><small>10:43 AM · Original response</small></div><div class="message-body"><h3>Start with the work, not the chat</h3><p>The workspace should treat a conversation as a source of material. A response can remain intact as an original record while a separate working document allows the user to organize and develop its content.</p><p>This distinction prevents the user from losing the model's exact output while still supporting editing and reuse.</p><ul><li>Preserve the original response and its source.</li><li>Create structured, editable blocks for working material.</li><li>Keep provenance and relationships between source and derived content.</li></ul><blockquote>“The conversation is a source of work, not the container for all future work.”</blockquote><p>For implementation, the data model should separate the immutable source response from the editable representation and the context selected for a later model request.</p><pre>OriginalResponse → WorkingDocument → ModelContext</pre><table><tr><th>Object</th><th>Purpose</th></tr><tr><td>Original Response</td><td>Preserve source</td></tr><tr><td>Working Block</td><td>Edit and relate</td></tr><tr><td>Model Context</td><td>Explicit sharing</td></tr></table><p>See the <a href="#" style="color:#9fc5e9">workspace architecture notes</a> for the object boundaries.</p></div><div class="message-actions"><button data-go="workbench">Open in Workbench</button><button onclick="notify('Copy preview action.')">Copy</button><button onclick="notify('Selection toolbar is available in Workbench.')">Select content</button></div></div><div class="card message"><div class="message-head"><div class="avatar blue">Y</div><strong>You</strong><small>10:47 AM</small></div><div class="message-body">How do we ensure a user can share only selected parts back with an AI provider?</div></div><div class="card message"><div class="message-head"><div class="avatar">✳</div><strong>ChatGPT</strong><small>10:48 AM · Original response</small></div><div class="message-body"><p>Introduce an explicit Model Context projection. Every working block is private by default. The user selects individual blocks or a parent section, reviews the exact context preview, then inserts it into the provider composer for review.</p></div><div class="message-actions"><button data-go="workbench">Open in Workbench</button><button>Pin message</button></div></div></div><div class="sidecol"><div class="card small-panel"><h3>Message navigator</h3><div class="panel-row"><span>All messages</span><strong>10</strong></div><div class="panel-row"><span>Assistant</span><strong>5</strong></div><div class="panel-row"><span>User</span><strong>5</strong></div><div class="panel-row"><span>Pinned</span><strong>1</strong></div><div class="panel-row"><span>By day</span><strong>Today</strong></div></div><div class="card small-panel" style="margin-top:12px"><h3>Conversation details</h3><div class="panel-row"><span>Provider</span><strong>ChatGPT</strong></div><div class="panel-row"><span>Folder</span><strong>Product research</strong></div><div class="panel-row"><span>Created</span><strong>Nov 14</strong></div><div class="panel-row"><span>Source</span><strong>Open provider ↗</strong></div></div></div></div></div>'}
+const blocks=[
+ {id:'idea',title:'Preserve the source response',type:'paragraph',text:'The original response should remain immutable. It is the evidence of what the provider returned at a particular time, including its wording, formatting, and source context.'},
+ {id:'structure',title:'Create a structured working document',type:'heading',text:'Create a structured working document'},
+ {id:'blocks',title:'Use meaningful content blocks',type:'paragraph',text:'The working representation should retain paragraphs, headings, lists, code blocks, tables, quotes, links, and media references. A response must not be flattened into a single text field.'},
+ {id:'steps',title:'Core requirements',type:'list',text:'Preserve the original response and timestamp\\nAllow edits without changing the source\\nKeep stable IDs and source anchors\\nTrack provenance for derived content'},
+ {id:'quote',title:'User control',type:'quote',text:'A private working document is not automatically model context. Sharing must be an explicit, reviewable action.'},
+ {id:'code',title:'Data flow',type:'code',text:'OriginalResponse\\n  └── WorkingDocument\\n        ├── Block A\\n        ├── Block B\\n        └── ModelContext (selected only)'}
+];
+let children=[{id:'child1',parent:'idea',label:'Explanation',text:'The source response and the editable work must have separate identities. This preserves provenance and makes it possible to compare the user's current document with what the provider originally produced.'}];
+function blockRender(b,editable){let attr=editable?'contenteditable="true" spellcheck="false"':'';let inner='';if(b.id==='structure')inner='<h3>'+b.text+'</h3>';else if(b.id==='steps')inner='<ul>'+b.text.split('\\n').map(x=>'<li>'+x+'</li>').join('')+'</ul>';else if(b.id==='quote')inner='<blockquote>'+b.text+'</blockquote>';else if(b.id==='code')inner='<pre>'+b.text+'</pre>';else inner='<p>'+b.text+'</p>';return '<div class="doc-block '+(state.selectedBlock===b.id?'selected':'')+'" data-block="'+b.id+'" '+attr+'>'+inner+'</div>'}
+function workbenchPage(){let body=state.wbMode==='original'?'<div class="doc-meta">✳ ChatGPT · Original Response · Captured Nov 14, 2026</div><h1 class="doc-title">Designing a knowledge workspace</h1><p class="doc-lede">This is the preserved source response. It is read-only and remains unchanged when you edit the working document.</p>'+blocks.map(b=>blockRender(b,false)).join(''):state.wbMode==='working'?'<div class="doc-meta">✎ Working document · Derived from Original Response · Autosaved locally in prototype</div><h1 class="doc-title">Designing a knowledge workspace</h1><p class="doc-lede">Editable material derived from the original answer. Select any block to reveal contextual actions.</p>'+blocks.map(b=>blockRender(b,true)).join('')+children.map(c=>'<div class="doc-block" style="margin-left:28px;border-left:2px solid var(--purple);background:rgba(181,161,226,.06)"><div class="badge" style="margin-bottom:7px">AI-generated child · Explanation</div><p>'+c.text+'</p><small class="muted">Parent: Preserve the source response · edited: no</small></div>').join(''): '<div class="doc-meta">◉ Model Context · Preview only</div><h1 class="doc-title">Selected context</h1><p class="doc-lede">Only checked working blocks are included. The original response is never shared automatically.</p>'+blocks.filter(b=>b.include).map(b=>blockRender(b,false)).join('')+'<div class="empty">Select blocks in the Context inspector to build this preview.</div>';
+return '<div class="canvas-inner">'+shellTitle('Response Workbench','A response becomes working material without losing the original source.')+'<div class="section toolbar-row"><div class="workbench-modes"><button class="mode-btn '+(state.wbMode==='original'?'active':'')+'" data-mode="original">Original</button><button class="mode-btn '+(state.wbMode==='working'?'active':'')+'" data-mode="working">Working</button><button class="mode-btn '+(state.wbMode==='context'?'active':'')+'" data-mode="context">Context preview</button></div><span style="flex:1"></span><button class="btn small" data-open-inspector="outline">☷ Outline</button><button class="btn small" data-open-inspector="context">◉ Model Context</button><button class="btn small">Export</button></div><div class="workbench-layout"><div class="document" id="document">'+body+'<div class="doc-foot"><span>Source: Designing a knowledge workspace · ChatGPT</span><span>Autosaved · Prototype</span></div></div><div class="card small-panel"><h3>Selected block</h3><p class="muted" style="font-size:12px;line-height:1.5">Choose a block in the document to inspect its source and actions.</p><div id="blockInspector"><div class="panel-row"><span>Block type</span><strong>Paragraph</strong></div><div class="panel-row"><span>Provenance</span><strong>AI-captured</strong></div><div class="panel-row"><span>Context</span><span class="badge yellow">Private</span></div></div><div class="block-tools"><button data-action="explain">Explain</button><button data-action="refine">Refine</button><button data-action="note">Create note</button><button data-action="context">Add to context</button></div><button class="btn primary small" style="width:100%;margin-top:13px" data-open-inspector="assistant">Open AI assistant</button></div></div></div>'}
+function browserPage(){return '<div class="browser-shell"><div class="page-eyebrow">BROWSER SESSION · MOCK</div><div class="page-title" style="font-size:25px;margin-bottom:16px">Provider session</div><div class="browser-top"><div class="browser-nav"><button>←</button><button>→</button><button>↻</button></div><div class="browser-address">⌕ <input id="browserUrl" value="'+state.browserUrl+'"><button class="btn small" id="browserGo">Go</button></div><button class="btn small" onclick="notify(\\'New tab is simulated in this prototype.\\')">＋ New tab</button></div><div class="browser-tabs">'+['ChatGPT · Research notes','Claude · Architecture','DeepSeek · New tab'].map(t=>'<button class="browser-tab '+(state.browserTab===t?'active':'')+'" data-btab="'+t+'">'+t+'</button>').join('')+'</div><div class="browser-frame"><span class="mock-browser-label">PROTOTYPE · NOT CONNECTED</span><div class="provider-page"><div class="provider-nav"><b>'+(state.browserTab.startsWith('Claude')?'Claude':state.browserTab.startsWith('DeepSeek')?'DeepSeek':'ChatGPT')+'</b><span>Mock signed-in workspace</span><span style="margin-left:auto">History · Settings</span></div><div class="provider-chat"><h2>How can I help you today?</h2><div class="bubble user">Help me reason about the structure of a long-term knowledge workspace.</div><div class="bubble">A durable workspace should separate source material from the user's evolving work. Keep the original response intact, create editable blocks, and make every context-sharing decision explicit.</div><div class="bubble user">Can you explain why the source must remain immutable?</div><div class="bubble">Immutability preserves provenance. The user can always return to the exact source and compare it with later edits or generated interpretations.</div><div class="composer">Message '+(state.browserTab.split(' ')[0])+'…</div></div></div></div><div class="provider-status"><span class="badge yellow">Mock adapter</span><span>Not connected · No real account, capture, or browser network activity is running.</span><button class="link-btn" style="margin-left:auto" onclick="notify(\\'Diagnostics: mock-only surface.\\')">Diagnostics</button></div></div>'}
+function promptPage(){let p=prompts.find(x=>x.id===state.promptId)||prompts[0];return '<div class="canvas-inner">'+shellTitle('Prompt library','Reusable instructions with variables, history, and a clear destination.')+'<div class="section prompt-grid"><div class="card"><div class="nav-head"><strong>Saved prompts</strong><button class="subtle-btn" onclick="notify(\\'New prompt is prototype-only.\\')">＋</button></div>'+prompts.map(x=>'<div class="prompt-list-item '+(x.id===p.id?'active':'')+'" data-prompt="'+x.id+'"><strong>'+x.title+(x.favorite?'　★':'')+'</strong><small>'+x.category+' · '+x.updated+'</small></div>').join('')+'</div><div class="card" style="padding:19px"><div class="toolbar-row" style="justify-content:space-between"><div><span class="badge blue">Prompt template</span><span class="badge">Prototype data</span></div><button class="btn small" onclick="notify(\\'Favorite state toggled in prototype.\\')">☆ Favorite</button></div><label style="display:block;margin-top:16px;color:var(--muted);font-size:12px">Title</label><input class="editor-field" id="promptTitle" value="'+p.title+'" style="margin-top:6px"><label style="display:block;margin-top:14px;color:var(--muted);font-size:12px">Prompt body</label><textarea class="editor-field" id="promptBody" rows="7" style="margin-top:6px;line-height:1.65">'+p.text+'</textarea><div style="margin-top:16px;font-size:13px;font-weight:600">Variable preview</div><div class="toolbar-row" style="margin-top:9px"><label style="color:var(--muted);font-size:12px">system / topic / decision</label><input id="variableValue" class="editor-field" value="WillAI-C workspace" style="max-width:230px"></div><div class="card" style="padding:12px;margin-top:10px;background:#111820"><div class="page-eyebrow" style="margin-bottom:7px">RESOLVED PREVIEW</div><div id="promptPreview" style="font-size:13px;color:#c4d0dc;line-height:1.6">'+p.text.replace(/{{(system|topic|decision)}}/g,'WillAI-C workspace')+'</div></div><div class="toolbar-row" style="margin-top:15px"><button class="btn primary" id="insertPrompt">Insert into composer</button><button class="btn">Save changes</button><span class="muted" style="font-size:12px">Insertion only · not submitted</span></div></div></div></div>'}
+function notesPage(){let n=notes.find(x=>x.id===state.noteId)||notes[0];return '<div class="canvas-inner">'+shellTitle('Notes','A simple place for user-authored knowledge, linked to conversations when useful.')+'<div class="section note-grid"><div class="card"><div class="nav-head"><strong>All notes</strong><button class="subtle-btn" onclick="notify(\\'New note is prototype-only.\\')">＋</button></div>'+notes.map(x=>'<div class="note-entry '+(x.id===n.id?'active':'')+'" data-note="'+x.id+'"><strong>'+x.title+'</strong><small>'+x.scope+' · '+x.updated+'</small></div>').join('')+'</div><div class="card note-editor"><div class="toolbar-row" style="justify-content:space-between"><span class="badge">'+n.scope+'</span><button class="btn small" id="refPicker">↗ Add reference</button></div><input class="editor-field" style="font-size:19px;font-weight:650;margin:14px 0" value="'+n.title+'"><textarea id="noteBody">'+n.text+'</textarea><div class="toolbar-row" style="border-top:1px solid var(--line-soft);padding-top:13px"><span class="muted" style="font-size:12px">Local note · Prototype edits are temporary</span><button class="btn small">Save</button></div></div></div></div>'}
+function mediaPage(){return '<div class="canvas-inner">'+shellTitle('Media library','Images, audio, downloads, and exports collected from your workspace.')+'<div class="section stats"><div class="card stat"><div class="stat-label">Images</div><div class="stat-value">28</div><div class="stat-detail">From conversations</div></div><div class="card stat"><div class="stat-label">Audio items</div><div class="stat-value">4</div><div class="stat-detail">Transcripts available</div></div><div class="card stat"><div class="stat-label">Exports</div><div class="stat-value">7</div><div class="stat-detail">Recent export jobs</div></div></div><div class="section card list">'+['Architecture sketch · Designing a knowledge workspace','Product reference · Workspace navigation','Conversation export · Local-first architecture','Voice transcript · Research interview'].map((x,i)=>'<div class="row-item"><div class="avatar '+(i?'blue':'')+'">'+(i===2?'⇩':i===3?'♫':'▧')+'</div><div class="row-main"><strong>'+x+'</strong><small>Mock media item · linked to a saved conversation</small></div><span class="badge">Prototype</span></div>').join('')+'</div></div>'}
+function render(){
+ $('#app').classList.toggle('with-inspector',state.inspector);
+ $('#inspector').classList.toggle('open',state.inspector);
+ $('#breadcrumb').innerHTML='<strong>'+({home:'Home',work:'Work',conversation:'Conversation',workbench:'Response Workbench',browser:'Browser Session',prompts:'Prompts',notes:'Notes',media:'Media'}[state.dest]||'Workspace')+'</strong>';
+ $$('.rail-btn[data-dest]').forEach(b=>b.classList.toggle('active',b.dataset.dest===state.dest));
+ navHtml();
+ let page=state.dest==='home'?homePage():state.dest==='work'?workPage():state.dest==='conversation'?conversationPage():state.dest==='workbench'?workbenchPage():state.dest==='browser'?browserPage():state.dest==='prompts'?promptPage():state.dest==='notes'?notesPage():mediaPage();
+ $('#canvas').innerHTML=page;
+ bindPage();
+ if(state.inspector)renderInspector();
+}
+function go(dest){state.dest=dest;state.inspector=false;render();if(innerWidth<=1020)$('#navPane').classList.remove('open')}
+function renderInspector(){
+ $('#inspector').classList.add('open');$('#app').classList.add('with-inspector');
+ let mode=state.inspectorMode;
+ $$('.inspector-tab').forEach(b=>b.classList.toggle('active',b.dataset.inspect===mode));
+ $('#inspectorTitle').textContent=mode==='outline'?'Document outline':mode==='assistant'?'AI assistant':'Model Context';
+ let html='';
+ if(mode==='outline')html='<h3>Designing a knowledge workspace</h3><p>Navigate the working document by heading and block.</p>'+blocks.map(b=>'<div class="panel-row" data-select-block="'+b.id+'"><span>'+((b.type==='heading'?'H · ':b.type==='list'?'☷ · ':'• · ')+b.title)+'</span><span class="muted">↗</span></div>').join('');
+ if(mode==='assistant')html='<span class="badge blue">Contextual assistant · prototype</span><h3 style="margin-top:15px">Ask about this work</h3><p>The assistant panel uses the selected block and references as optional context. No real model is connected.</p><div class="card" style="padding:10px;margin-bottom:12px"><div class="page-eyebrow">SELECTED SOURCE</div><p style="margin:6px 0 0">“'+(blocks.find(b=>b.id===state.selectedBlock)?.text||'No block selected')+'”</p></div><textarea class="editor-field" rows="4" placeholder="Ask a question or request a refinement…"></textarea><button class="btn primary" style="width:100%;margin-top:10px" onclick="notify(\\'Prototype only: no AI request was sent.\\')">Generate child artifact</button><p style="margin-top:12px">The result would be stored as a child of the selected block, with provenance and a source relationship.</p>';
+ if(mode==='context')html='<h3>Model Context</h3><p>Choose exactly which working blocks may be included in a future provider prompt. Everything starts private.</p>'+blocks.map(b=>'<label class="context-item"><input type="checkbox" data-context="'+b.id+'" '+(b.include?'checked':'')+'><span><strong>'+b.title+'</strong><small>'+b.type+' · '+(b.include?'Included':'Private by default')+'</small></span></label>').join('')+'<h3 style="margin-top:18px">Exact preview</h3><div class="preview" id="contextPreview">'+contextPreview()+'</div><button class="btn primary" style="width:100%;margin-top:12px" onclick="notify(\\'Preview only: this prototype does not connect to a provider or insert text.\\')">Copy context preview</button><p style="margin-top:10px">Preview only. In the application, inserting text into a composer and submitting it must remain separate actions.</p>';
+ $('#inspectorContent').innerHTML=html;
+}
+function contextPreview(){let selected=blocks.filter(b=>b.include);return selected.length?selected.map(b=>b.title+': '+b.text).join('\\n\\n'):'No blocks selected. Select items above to build the preview.'}
+function bindPage(){
+ $$('[data-go]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.go)));
+ $$('[data-open-conv]').forEach(b=>b.addEventListener('click',()=>{state.dest='conversation';render()}));
+ $$('[data-open-inspector]').forEach(b=>b.addEventListener('click',()=>openInspector(b.dataset.openInspector)));
+ $$('[data-mode]').forEach(b=>b.addEventListener('click',()=>{state.wbMode=b.dataset.mode;render()}));
+ $$('[data-block]').forEach(b=>{b.addEventListener('click',e=>{if(e.target.closest('a'))return;state.selectedBlock=b.dataset.block;$$('[data-block]').forEach(x=>x.classList.toggle('selected',x.dataset.block===state.selectedBlock));updateBlockInspector();});b.addEventListener('input',()=>{let obj=blocks.find(x=>x.id===b.dataset.block);if(obj)obj.text=b.innerText;});});
+ $$('[data-action]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.action==='context'){let x=blocks.find(x=>x.id===state.selectedBlock);if(x)x.include=!x.include;openInspector('context')}else if(b.dataset.action==='note'){state.dest='notes';render();notify('Create a note from the selected block.')}else{children.push({id:'child'+(children.length+1),parent:state.selectedBlock,label:b.dataset.action==='explain'?'Explanation':'Refinement',text:(b.dataset.action==='explain'?'Explanation of ':'Refinement of ')+(blocks.find(x=>x.id===state.selectedBlock)?.title||'selected block')+': this child artifact remains linked to its source and does not replace it.'});renderInspectorIfNeeded();render();notify('Prototype child artifact created with parent relationship.')}}));
+ $$('[data-prompt]').forEach(b=>b.addEventListener('click',()=>{state.promptId=b.dataset.prompt;render()}));
+ $$('[data-note]').forEach(b=>b.addEventListener('click',()=>{state.noteId=b.dataset.note;render()}));
+ $$('[data-btab]').forEach(b=>b.addEventListener('click',()=>{state.browserTab=b.dataset.btab;render()}));
+ let ws=$('#workSearch');if(ws)ws.addEventListener('input',filterConversations);
+ let pf=$('#providerFilter');if(pf)pf.addEventListener('change',filterConversations);
+ let vv=$('#variableValue');if(vv)vv.addEventListener('input',updatePromptPreview);
+ let ib=$('#insertPrompt');if(ib)ib.addEventListener('click',()=>notify('Prompt preview prepared for insertion. No provider is connected and nothing was submitted.'));
+ let rp=$('#refPicker');if(rp)rp.addEventListener('click',()=>notify('Reference picker: select a conversation or note (mock data only).'));
+ let bg=$('#browserGo');if(bg)bg.addEventListener('click',()=>{state.browserUrl=$('#browserUrl').value;notify('Address updated in mock browser only.')});
+}
+function updatePromptPreview(){let p=prompts.find(x=>x.id===state.promptId)||prompts[0];let v=$('#variableValue')?.value||'WillAI-C workspace';if($('#promptPreview'))$('#promptPreview').textContent=p.text.replace(/{{(system|topic|decision)}}/g,v)}
+function filterConversations(){let q=($('#workSearch')?.value||'').toLowerCase(),p=$('#providerFilter')?.value||'All providers';let list=conversations.filter(c=>(c.title+' '+c.preview+' '+c.folder).toLowerCase().includes(q)&&(p==='All providers'||c.provider===p));$('#conversationList').innerHTML=list.length?list.map(rowConversation).join(''):'<div class="empty">No conversations match this search.</div>';$$('[data-open-conv]').forEach(b=>b.addEventListener('click',()=>{state.dest='conversation';render()}))}
+function updateBlockInspector(){let b=blocks.find(x=>x.id===state.selectedBlock);if($('#blockInspector')&&b)$('#blockInspector').innerHTML='<div class="panel-row"><span>Block</span><strong>'+b.title+'</strong></div><div class="panel-row"><span>Provenance</span><strong>AI-captured</strong></div><div class="panel-row"><span>Model Context</span><span class="badge '+(b.include?'green':'yellow')+'">'+(b.include?'Included':'Private')+'</span></div><div class="panel-row"><span>Source anchor</span><strong>Message · 04</strong></div>'}
+function openInspector(mode){state.inspector=true;state.inspectorMode=mode;renderInspector()}
+function renderInspectorIfNeeded(){if(state.inspector)renderInspector()}
+function notify(msg){$('#toastRoot').innerHTML='<div class="toast">'+msg+'</div>';setTimeout(()=>$('#toastRoot').innerHTML='',2800)}
+window.notify=notify;
+function openSearch(){let commands=[['Open Home','home','G H'],['Open Work library','work','G W'],['Open Response Workbench','workbench','G E'],['Open Browser session','browser','G B'],['Open Prompts','prompts','G P'],['Open Notes','notes','G N']];$('#overlayRoot').innerHTML='<div class="overlay" id="overlay"><div class="dialog"><div class="dialog-search">⌕ <input id="commandInput" placeholder="Search work or run a command…"><kbd>ESC</kbd></div><div class="dialog-body"><div class="nav-label">NAVIGATION</div>'+commands.map(c=>'<div class="command-row" data-command="'+c[1]+'">⌘ &nbsp; '+c[0]+'<kbd>'+c[2]+'</kbd></div>').join('')+'<div class="nav-label" style="margin-top:12px">RECENT ITEMS</div>'+conversations.slice(0,3).map(c=>'<div class="command-row" data-command="conversation">▤ &nbsp; '+c.title+'</div>').join('')+'</div></div></div>';$('#commandInput').focus();$$('[data-command]').forEach(b=>b.addEventListener('click',()=>{$('#overlayRoot').innerHTML='';go(b.dataset.command)}));$('#overlay').addEventListener('click',e=>{if(e.target.id==='overlay')$('#overlayRoot').innerHTML=''})}
+$('#searchOpen').addEventListener('click',openSearch);$('#globalSearch').addEventListener('click',openSearch);
+$('#contextToggle').addEventListener('click',()=>{state.inspector=!state.inspector;render()});
+$('#inspectorClose').addEventListener('click',()=>{state.inspector=false;render()});
+$('#navClose').addEventListener('click',()=>$('#navPane').classList.remove('open'));
+$('#inspectorTabs').addEventListener('click',e=>{let b=e.target.closest('[data-inspect]');if(b){state.inspectorMode=b.dataset.inspect;renderInspector()}});
+$('#inspectorContent').addEventListener('click',e=>{let b=e.target.closest('[data-select-block]');if(b){state.dest='workbench';state.selectedBlock=b.dataset.selectBlock;render()}});
+$('#createAction').addEventListener('click',()=>{state.dest='notes';render();notify('Create a note. Prompt and document creation are also available from their library screens.')});
+$('#app').addEventListener('click',e=>{let b=e.target.closest('[data-dest]');if(b)go(b.dataset.dest)});
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openSearch()}if(e.key==='Escape')$('#overlayRoot').innerHTML='';if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='b'){e.preventDefault();$('#navPane').classList.toggle('open')}});
+render();
+})();
+</script>
+</body>
+</html>
