@@ -156,7 +156,7 @@ class BrowserController {
 
     const contents = view.webContents;
     contents.setWindowOpenHandler(({ url: target }) => {
-      if (isWebUrl(target)) this.createTab(target, { background: true }).catch(() => {});
+      if (isWebUrl(target)) this.createTab(target).catch(() => {});
       return { action: 'deny' };
     });
 
