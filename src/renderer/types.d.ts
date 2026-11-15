@@ -2,6 +2,16 @@ export {};
 
 declare global {
   type Provider = 'chatgpt' | 'claude' | 'deepseek';
+  type CaptureAdapterState = 'waiting' | 'ready' | 'scanning' | 'no-message-elements' | 'message-elements-found' | 'response-sent' | 'capture-error';
+
+  interface ProviderCaptureStatus {
+    provider: Provider;
+    state: CaptureAdapterState;
+    candidateCount: number;
+    capturedCount: number;
+    message?: string;
+    updatedAt: string;
+  }
 
   interface WorkingNode {
     id: string;
@@ -46,6 +56,7 @@ declare global {
     canGoForward: boolean;
     favicon: string;
     provider: Provider | null;
+    captureStatus: ProviderCaptureStatus | null;
   }
 
   interface BrowserState {
@@ -72,8 +83,9 @@ declare global {
       deleteNode(nodeId: string): Promise<{ok: boolean}>;
       copyText(text: string): Promise<{ok: boolean}>;
       onBrowserState(callback: (state: BrowserState) => void): () => void;
-      onCapture(callback: (payload: {conversationId: string; responseId: string}) => void): () => void;
+      onCapture(callback: (payload: {created: boolean; conversationId: string; responseId: string}) => void): () => void;
       onSnapshotChanged(callback: () => void): () => void;
+      onCaptureError(callback: (result: {provider?: string; error: string}) => void): () => void;
       onContextInsertResult(callback: (result: {ok: boolean; error?: string}) => void): () => void;
     };
   }
