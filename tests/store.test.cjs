@@ -37,6 +37,7 @@ test('original response remains unchanged when working nodes are edited', () => 
     assert.equal(updated.nodes[0].provenance, 'human-edited');
     assert.equal(result.created, true);
   } finally {
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -56,6 +57,7 @@ test('private nodes are excluded until explicitly enabled for model context', ()
     assert.match(context, /A private note\./);
     assert.match(context, /WillAI-C shared context/);
   } finally {
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -75,6 +77,7 @@ test('deleting a parent also excludes its descendants from context', () => {
     assert.equal(store.getContextForSource(conversation.sourceUrl).context, '');
     assert.equal(captured.created, true);
   } finally {
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -88,17 +91,26 @@ test('capture deduplicates stable message ids', () => {
     assert.equal(second.created, false);
     assert.equal(store.getSnapshot().conversations[0].responses.length, 1);
   } finally {
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 
-test('pairing token survives an application restart', () => {
+test('SQLite database and bridge token survive an application restart', () => {
   const { directory, store } = makeStore();
+  let reopened;
   try {
     const token = store.getBridgeInfo().token;
-    const reopened = new LocalStore(directory);
+    const databasePath = store.databasePath;
+    store.close();
+    assert.ok(fs.existsSync(databasePath));
+    reopened = new LocalStore(directory);
     assert.equal(reopened.getBridgeInfo().token, token);
+    assert.equal(reopened.getSnapshot().conversations.length, 0);
   } finally {
+    reopened?.close();
+    store.close();
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -140,6 +152,7 @@ test('outline supports sibling insertion, indentation, outdent, and reordering',
       .sort((a, b) => a.position - b.position);
     assert.ok(roots.findIndex((node) => node.id === second.id) < roots.findIndex((node) => node.id === inserted.nodeId));
   } finally {
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });

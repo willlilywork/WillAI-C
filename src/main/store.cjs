@@ -3,7 +3,6 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { parseMarkdownNodes } = require('./markdown-nodes.cjs');
 const Database = require('better-sqlite3');
-const Database = require('better-sqlite3');
 
 const SUPPORTED_PROVIDERS = new Set(['chatgpt', 'claude', 'deepseek']);
 const MAX_TEXT_LENGTH = 120_000;
