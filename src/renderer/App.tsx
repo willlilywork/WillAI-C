@@ -56,7 +56,7 @@ function App() {
     } catch { return { sidebar: 232, browser: 430 }; }
   });
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [workspaceView, setWorkspaceView] = useState<'newchat' | 'overview' | 'prompts' | 'notes' | 'library'>('newchat');
+  const [workspaceView, setWorkspaceView] = useState<'newchat' | 'home' | 'work' | 'prompts' | 'notes' | 'library' | 'browser'>('newchat');
   const [selectedProvider, setSelectedProvider] = useState<Provider>('chatgpt');
   const [draftPrompt, setDraftPrompt] = useState('');
   const [pendingPrompt, setPendingPrompt] = useState<{provider: Provider; content: string; dispatched: boolean} | null>(null);
@@ -163,7 +163,7 @@ function App() {
     const offBrowser = window.willai.onBrowserState(setBrowserState);
     const offCapture = window.willai.onCapture((result) => {
       setActiveConversationId(result.conversationId);
-      setWorkspaceView('overview');
+      setWorkspaceView('work');
       setBrowserOpen(false);
       setNotice(result.created
         ? 'Assistant response captured. It is now available in your WillAI workspace.'
@@ -244,7 +244,7 @@ function App() {
   }
 
   async function openProvider(provider: Provider) {
-    setWorkspaceView('overview');
+    setWorkspaceView('browser');
     setBrowserOpen(true);
     const existing = browserState.tabs.find((tab) => {
       try {
@@ -264,22 +264,9 @@ function App() {
   }
 
   function openConversation(conversation: Conversation) {
-    setWorkspaceView('overview');
+    setWorkspaceView('work');
     setActiveConversationId(conversation.id);
-    setBrowserOpen(true);
-    const existing = browserState.tabs.find((tab) => {
-      try {
-        return new URL(tab.url).hostname === new URL(conversation.sourceUrl).hostname;
-      } catch {
-        return false;
-      }
-    });
-    if (existing) {
-      void window.willai.activateTab(existing.id);
-      void window.willai.navigate(conversation.sourceUrl);
-    } else {
-      void window.willai.createTab(conversation.sourceUrl);
-    }
+    setBrowserOpen(false);
   }
 
   async function startPromptInProvider(provider: Provider, value: string) {
@@ -288,6 +275,7 @@ function App() {
 
     setSelectedProvider(provider);
     setPendingPrompt({ provider, content, dispatched: false });
+    setWorkspaceView('browser');
     setBrowserOpen(true);
     setNotice('Opening ' + providerLabels[provider] + ' and preparing your prompt…');
 
@@ -309,6 +297,13 @@ function App() {
       setPendingPrompt(null);
       setNotice(error instanceof Error ? error.message : 'Could not open the selected provider.');
     }
+  }
+
+  function navigateTo(view: 'newchat' | 'home' | 'work' | 'prompts' | 'notes' | 'library' | 'browser') {
+    setWorkspaceView(view);
+    setBrowserOpen(view === 'browser');
+    if (view === 'newchat') setActiveConversationId(null);
+    if (view === 'home') { setFolderFilter(null); setShowArchived(false); }
   }
 
   async function insertContext() {
@@ -353,251 +348,192 @@ function App() {
 
 
 
+  const pageTitle = workspaceView === 'newchat' ? 'New Conversation'
+    : workspaceView === 'home' ? 'Home'
+      : workspaceView === 'work' ? 'Work'
+        : workspaceView === 'prompts' ? 'Prompts'
+          : workspaceView === 'notes' ? 'Notes'
+            : workspaceView === 'browser' ? 'Browser'
+              : 'Bookmarks & History';
+
   return (
     <div className="willai-app">
       <header className="app-header">
-        <div className="app-brand">
-          <span className="brand-mark">W</span>
-          <span className="brand-word">WillAI<span>-C</span></span>
-        </div>
+        <div className="app-brand"><span className="brand-mark">W</span><span className="brand-word">WillAI<span>-C</span></span></div>
         <div className="header-divider" />
-        <div className="header-location">
-          <span className="header-product">WORKSPACE</span>
-          <span className="header-caption">Your conversations, responses and working knowledge</span>
-        </div>
+        <div className="header-location"><span className="header-product">WORKSPACE</span><span className="header-caption">{pageTitle}</span></div>
         <div className="header-actions">
-          <button type="button" className="header-secondary" onClick={() => setWorkspaceView('prompts')}>Prompts</button>
-          <button type="button" className="header-secondary" onClick={() => setWorkspaceView('notes')}>Notes</button>
-          <button type="button" className="header-secondary" onClick={() => setBrowserOpen((value) => !value)}>
-            {browserOpen ? 'Hide browser' : 'Open browser'}
-          </button>
-          <button type="button" className="header-primary" onClick={() => { setWorkspaceView('newchat'); setActiveConversationId(null); setBrowserOpen(false); }}>＋ New conversation</button>
+          <button type="button" className="header-secondary" onClick={() => navigateTo('browser')}>Open browser</button>
+          <button type="button" className="header-primary" onClick={() => navigateTo('newchat')}>＋ New conversation</button>
         </div>
       </header>
+      {notice && <button className="workspace-notice" type="button" onClick={() => setNotice('')} title="Dismiss notification"><span>{notice}</span><b>×</b></button>}
 
-      {notice && (
-        <button className="workspace-notice" type="button" onClick={() => setNotice('')} title="Dismiss notification">
-          <span>{notice}</span><b>×</b>
-        </button>
-      )}
+      <div className="workspace-layout" style={{ '--sidebar-width': panelSizes.sidebar + 'px' } as CSSProperties}>
+        <nav className="global-rail" aria-label="Primary navigation">
+          <button type="button" className={'rail-item rail-create' + (workspaceView === 'newchat' ? ' active' : '')} onClick={() => navigateTo('newchat')} title="New Conversation" aria-label="New Conversation"><span className="rail-icon">＋</span><span className="rail-label">New</span></button>
+          <div className="rail-divider" />
+          <button type="button" className={'rail-item' + (workspaceView === 'home' ? ' active' : '')} onClick={() => navigateTo('home')} title="Home" aria-label="Home"><span className="rail-icon">⌂</span><span className="rail-label">Home</span></button>
+          <button type="button" className={'rail-item' + (workspaceView === 'work' ? ' active' : '')} onClick={() => navigateTo('work')} title="Work" aria-label="Work"><span className="rail-icon">▤</span><span className="rail-label">Work</span></button>
+          <button type="button" className={'rail-item' + (workspaceView === 'prompts' ? ' active' : '')} onClick={() => navigateTo('prompts')} title="Prompts" aria-label="Prompts"><span className="rail-icon">✎</span><span className="rail-label">Prompts</span></button>
+          <button type="button" className={'rail-item' + (workspaceView === 'notes' ? ' active' : '')} onClick={() => navigateTo('notes')} title="Notes" aria-label="Notes"><span className="rail-icon">▧</span><span className="rail-label">Notes</span></button>
+          <button type="button" className={'rail-item' + ((workspaceView === 'browser' || workspaceView === 'library') ? ' active' : '')} onClick={() => navigateTo('browser')} title="Browser" aria-label="Browser"><span className="rail-icon">◉</span><span className="rail-label">Browser</span></button>
+          <div className="rail-spacer" /><div className="rail-local-status" title="Local data stored on this device"><span className="rail-local-dot" /><span>Local</span></div>
+        </nav>
 
-      <div className={'workspace-layout' + (browserOpen ? ' browser-visible' : '')} style={{ '--sidebar-width': `${panelSizes.sidebar}px`, '--browser-width': `${panelSizes.browser}px` } as CSSProperties}>
-        <aside className="workspace-sidebar">
-          <div className="sidebar-section">
-            <div className="sidebar-kicker">WORKSPACE</div>
-            <button type="button" className={'sidebar-nav' + (workspaceView === 'newchat' ? ' active' : '')} onClick={() => { setWorkspaceView('newchat'); setActiveConversationId(null); setBrowserOpen(false); }}>
-              <span className="nav-symbol">＋</span><span>New Conversation</span>
-            </button>
-            <button type="button" className={'sidebar-nav' + (workspaceView === 'overview' ? ' active' : '')} onClick={() => { setWorkspaceView('overview'); setFolderFilter(null); setShowArchived(false); }}>
-              <span className="nav-symbol">⌂</span><span>Overview</span>
-            </button>
-            <button type="button" className={'sidebar-nav' + (workspaceView === 'prompts' ? ' active' : '')} onClick={() => setWorkspaceView('prompts')}>
-              <span className="nav-symbol">✎</span><span>Prompt Manager</span><span className="nav-count">{snapshot.prompts.length}</span>
-            </button>
-            <button type="button" className={'sidebar-nav' + (workspaceView === 'notes' ? ' active' : '')} onClick={() => setWorkspaceView('notes')}>
-              <span className="nav-symbol">▧</span><span>Notes</span><span className="nav-count">{snapshot.notes.length}</span>
-            </button>
-            <button type="button" className={'sidebar-nav' + (workspaceView === 'library' ? ' active' : '')} onClick={() => setWorkspaceView('library')}>
-              <span className="nav-symbol">⌖</span><span>Bookmarks & History</span>
-            </button>
-          </div>
-
-          <div className="sidebar-rule" />
-
-          <div className="sidebar-section folder-section">
-            <div className="sidebar-section-heading">
-              <span className="sidebar-kicker">FOLDERS</span>
-              <button type="button" className="sidebar-add" onClick={() => void createFolder(null)}>＋</button>
-            </div>
-            <button type="button" className={'folder-filter' + (!folderFilter && !showArchived ? ' active' : '')} onClick={() => { setFolderFilter(null); setShowArchived(false); setWorkspaceView('overview'); }}>
-              <span>All conversations</span><small>{snapshot.conversations.filter((item) => !item.archivedAt).length}</small>
-            </button>
-            {snapshot.folders.filter((folder) => !folder.parentId).map((folder) => (
-              <FolderSidebarItem
-                key={folder.id}
-                folder={folder}
-                allFolders={snapshot.folders}
-                activeId={folderFilter}
-                onSelect={(id) => { setFolderFilter(id); setShowArchived(false); setWorkspaceView('overview'); }}
-                onAddChild={(id) => void createFolder(id)}
-                onDelete={deleteFolder}
-              />
-            ))}
-            <button type="button" className={'folder-filter' + (showArchived ? ' active' : '')} onClick={() => { setShowArchived(true); setFolderFilter(null); setWorkspaceView('overview'); }}>
-              <span>Archived</span><small>{snapshot.conversations.filter((item) => item.archivedAt).length}</small>
-            </button>
-          </div>
-
-          <div className="sidebar-rule" />
-          <div className="sidebar-section provider-section">
-            <div className="sidebar-kicker">AI PROVIDERS</div>
-            {(Object.keys(providerLabels) as Provider[]).map((provider) => (
-              <button type="button" className="provider-launch" key={provider} onClick={() => void openProvider(provider)}>
-                <span className={'provider-icon ' + provider}>{providerIcons[provider]}</span>
-                <span>{providerLabels[provider]}</span>
-                <span className="provider-launch-action">Open</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="sidebar-rule" />
-
-          <div className="sidebar-section conversation-section">
-            <div className="sidebar-section-heading">
-              <span className="sidebar-kicker">RECENT CONVERSATIONS</span>
-              <span className="sidebar-count">{snapshot.conversations.length}</span>
-            </div>
-            <label className="conversation-search">
-              <span>⌕</span>
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter conversations" />
-            </label>
-            {bulkSelection.length > 0 && (
-              <div className="bulk-actions">
-                <span>{bulkSelection.length} selected</span>
-                <button type="button" onClick={() => void deleteSelectedConversations()}>Delete</button>
-                <button type="button" onClick={() => setBulkSelection([])}>Clear</button>
+        <aside className="workspace-sidebar" aria-label={pageTitle + ' navigation'}>
+          {workspaceView === 'work' && (
+            <>
+              <div className="nav-pane-heading"><span className="sidebar-kicker">WORKSPACE</span><h2>Work</h2></div>
+              <div className="sidebar-section folder-section">
+                <div className="sidebar-section-heading"><span className="sidebar-kicker">FOLDERS</span><button type="button" className="sidebar-add" onClick={() => void createFolder(null)} aria-label="Create folder">＋</button></div>
+                <button type="button" className={'folder-filter' + (!folderFilter && !showArchived ? ' active' : '')} onClick={() => { setFolderFilter(null); setShowArchived(false); setActiveConversationId(null); }}><span>All conversations</span><small>{snapshot.conversations.filter((item) => !item.archivedAt).length}</small></button>
+                {snapshot.folders.filter((folder) => !folder.parentId).map((folder) => (
+                  <FolderSidebarItem key={folder.id} folder={folder} allFolders={snapshot.folders} activeId={folderFilter}
+                    onSelect={(id) => { setFolderFilter(id); setShowArchived(false); setActiveConversationId(null); }}
+                    onAddChild={(id) => void createFolder(id)} onDelete={deleteFolder} />
+                ))}
+                <button type="button" className={'folder-filter' + (showArchived ? ' active' : '')} onClick={() => { setShowArchived(true); setFolderFilter(null); setActiveConversationId(null); }}><span>Archived</span><small>{snapshot.conversations.filter((item) => item.archivedAt).length}</small></button>
               </div>
-            )}
-            <div className="conversation-list">
-              {filteredConversations.map((conversation) => (
-                <div className="conversation-row" key={conversation.id}>
-                  <input
-                    type="checkbox"
-                    checked={bulkSelection.includes(conversation.id)}
-                    onChange={() => void toggleConversationSelection(conversation.id)}
-                    aria-label={'Select ' + conversation.title}
-                  />
-                  <button
-                    type="button"
-                    className={'conversation-link' + (activeConversationId === conversation.id && workspaceView === 'overview' ? ' active' : '')}
-                    onClick={() => openConversation(conversation)}
-                    title={conversation.title}
-                  >
-                    <span className={'provider-dot ' + conversation.provider} />
-                    <span className="conversation-link-main">
-                      <span className="conversation-link-title">{conversation.pinned ? '★ ' : ''}{conversation.title}</span>
-                      <small>{providerLabels[conversation.provider]} · {conversation.responses.length} responses · {new Date(conversation.updatedAt).toLocaleDateString()}</small>
-                    </span>
-                  </button>
-                  <button type="button" className="conversation-row-more" title={conversation.pinned ? 'Unpin conversation' : 'Pin conversation'} onClick={() => void setConversationFlag(conversation.id, { pinned: !conversation.pinned })}>{conversation.pinned ? '★' : '☆'}</button>
+              <div className="sidebar-rule" />
+              <div className="sidebar-section conversation-section">
+                <div className="sidebar-section-heading"><span className="sidebar-kicker">CONVERSATIONS</span><span className="sidebar-count">{filteredConversations.length}</span></div>
+                <label className="conversation-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" /></label>
+                {bulkSelection.length > 0 && <div className="bulk-actions"><span>{bulkSelection.length} selected</span><button type="button" onClick={() => void deleteSelectedConversations()}>Delete</button><button type="button" onClick={() => setBulkSelection([])}>Clear</button></div>}
+                <div className="conversation-list">
+                  {filteredConversations.map((conversation) => (
+                    <div className="conversation-row" key={conversation.id}>
+                      <input type="checkbox" checked={bulkSelection.includes(conversation.id)} onChange={() => void toggleConversationSelection(conversation.id)} aria-label={'Select ' + conversation.title} />
+                      <button type="button" className={'conversation-link' + (activeConversationId === conversation.id ? ' active' : '')} onClick={() => openConversation(conversation)} title={conversation.title}>
+                        <span className={'provider-dot ' + conversation.provider} /><span className="conversation-link-main"><span className="conversation-link-title">{conversation.pinned ? '★ ' : ''}{conversation.title}</span><small>{providerLabels[conversation.provider]} · {conversation.responses.length} responses · {new Date(conversation.updatedAt).toLocaleDateString()}</small></span>
+                      </button>
+                      <button type="button" className="conversation-row-more" title={conversation.pinned ? 'Unpin conversation' : 'Pin conversation'} onClick={() => void setConversationFlag(conversation.id, { pinned: !conversation.pinned })}>{conversation.pinned ? '★' : '☆'}</button>
+                    </div>
+                  ))}
+                  {!filteredConversations.length && <div className="empty-sidebar">{snapshot.conversations.length ? 'No conversations match this filter.' : 'Captured conversations will appear here.'}</div>}
                 </div>
-              ))}
-              {!filteredConversations.length && (
-                <div className="empty-sidebar">
-                  {snapshot.conversations.length
-                    ? 'No conversations match this filter.'
-                    : 'Responses captured from your AI sessions will be stored here.'}
-                </div>
-              )}
-            </div>
-          </div>
+              </div>
+              <button type="button" className="nav-pane-footer-action" onClick={() => navigateTo('browser')}>Open provider browser <span>↗</span></button>
+            </>
+          )}
 
-          <div className="sidebar-footer">
-            <span className="local-indicator" />
-            <div><strong>Local workspace</strong><small>Your captured data stays on this device.</small></div>
-          </div>
+          {workspaceView === 'home' && (
+            <>
+              <div className="nav-pane-heading"><span className="sidebar-kicker">WILLAI-C</span><h2>Home</h2></div>
+              <div className="sidebar-section">
+                <button type="button" className="sidebar-nav" onClick={() => navigateTo('newchat')}><span className="nav-symbol">＋</span><span>New Conversation</span></button>
+                <button type="button" className="sidebar-nav" onClick={() => navigateTo('work')}><span className="nav-symbol">▤</span><span>Browse Work</span><span className="nav-count">{snapshot.conversations.length}</span></button>
+                <button type="button" className="sidebar-nav" onClick={() => navigateTo('prompts')}><span className="nav-symbol">✎</span><span>Prompt Manager</span><span className="nav-count">{snapshot.prompts.length}</span></button>
+                <button type="button" className="sidebar-nav" onClick={() => navigateTo('notes')}><span className="nav-symbol">▧</span><span>Notes</span><span className="nav-count">{snapshot.notes.length}</span></button>
+              </div>
+              <div className="sidebar-rule" /><div className="sidebar-section provider-section"><div className="sidebar-kicker">PROVIDERS</div>
+                {(Object.keys(providerLabels) as Provider[]).map((provider) => <button type="button" className="provider-launch" key={provider} onClick={() => void openProvider(provider)}><span className={'provider-icon ' + provider}>{providerIcons[provider]}</span><span>{providerLabels[provider]}</span><span className="provider-launch-action">Open</span></button>)}
+              </div>
+            </>
+          )}
+
+          {workspaceView === 'newchat' && (
+            <>
+              <div className="nav-pane-heading"><span className="sidebar-kicker">START HERE</span><h2>New conversation</h2></div>
+              <div className="nav-pane-help">Choose a provider and write your request in the main canvas. Your prompt is placed in the provider composer for review.</div>
+              <div className="sidebar-rule" /><div className="sidebar-section"><span className="sidebar-kicker">RECENT WORK</span>
+                {snapshot.conversations.slice(0, 6).map((conversation) => <button type="button" className="nav-recent-item" key={conversation.id} onClick={() => openConversation(conversation)}><span className={'provider-dot ' + conversation.provider} /><span>{conversation.title}</span></button>)}
+                {!snapshot.conversations.length && <div className="empty-sidebar">Your saved conversations will appear here.</div>}
+              </div>
+            </>
+          )}
+
+          {workspaceView === 'prompts' && (
+            <>
+              <div className="nav-pane-heading"><span className="sidebar-kicker">LIBRARY</span><h2>Prompts</h2></div>
+              <button type="button" className="sidebar-nav active" onClick={() => navigateTo('prompts')}><span className="nav-symbol">✎</span><span>All prompts</span><span className="nav-count">{snapshot.prompts.length}</span></button>
+              <div className="nav-pane-summary"><strong>{snapshot.prompts.filter((item) => item.favorite).length} favourites</strong><span>{snapshot.promptHistory.length} prompt history entries</span><span>{snapshot.promptQueue.length} queued prompts</span></div>
+            </>
+          )}
+
+          {workspaceView === 'notes' && (
+            <>
+              <div className="nav-pane-heading"><span className="sidebar-kicker">KNOWLEDGE</span><h2>Notes</h2></div>
+              <button type="button" className="sidebar-nav active" onClick={() => navigateTo('notes')}><span className="nav-symbol">▧</span><span>All notes</span><span className="nav-count">{snapshot.notes.length}</span></button>
+              <div className="nav-pane-summary"><strong>{snapshot.notes.filter((item) => !item.conversationId).length} global notes</strong><span>{snapshot.notes.filter((item) => Boolean(item.conversationId)).length} conversation notes</span><span>Stored locally on this device</span></div>
+            </>
+          )}
+
+          {workspaceView === 'browser' && (
+            <>
+              <div className="nav-pane-heading"><span className="sidebar-kicker">WEB SESSION</span><h2>Browser</h2><button type="button" className="sidebar-add nav-new-tab" onClick={() => void window.willai.createTab('https://chatgpt.com/')} aria-label="New browser tab">＋ New tab</button></div>
+              <div className="sidebar-section browser-nav-tabs">
+                <div className="sidebar-section-heading"><span className="sidebar-kicker">OPEN TABS</span><span className="sidebar-count">{browserState.tabs.length}</span></div>
+                {browserState.tabs.map((tab) => <div className={'browser-nav-row' + (tab.id === browserState.activeTabId ? ' active' : '')} key={tab.id}><button type="button" onClick={() => void window.willai.activateTab(tab.id)} title={tab.url}><span className={'provider-dot ' + (tab.provider || 'web')} /><span>{tab.title || 'New tab'}</span></button><button type="button" title="Close tab" onClick={() => void window.willai.closeTab(tab.id)}>×</button></div>)}
+                {!browserState.tabs.length && <div className="empty-sidebar">No open tabs. Choose a provider or create a tab.</div>}
+              </div>
+              <div className="sidebar-rule" />
+              <button type="button" className="sidebar-nav" onClick={() => navigateTo('library')}><span className="nav-symbol">▤</span><span>Bookmarks & History</span><span className="nav-count">{snapshot.bookmarks.length + snapshot.browserHistory.length}</span></button>
+              <div className="sidebar-section provider-section"><span className="sidebar-kicker">AI PROVIDERS</span>
+                {(Object.keys(providerLabels) as Provider[]).map((provider) => <button type="button" className="provider-launch" key={provider} onClick={() => void openProvider(provider)}><span className={'provider-icon ' + provider}>{providerIcons[provider]}</span><span>{providerLabels[provider]}</span><span className="provider-launch-action">Open</span></button>)}
+              </div>
+            </>
+          )}
+
+          {workspaceView === 'library' && (
+            <>
+              <div className="nav-pane-heading"><span className="sidebar-kicker">BROWSER DATA</span><h2>Library</h2></div>
+              <button type="button" className="sidebar-nav" onClick={() => navigateTo('browser')}><span className="nav-symbol">◉</span><span>Return to Browser</span></button>
+              <div className="nav-pane-summary"><strong>{snapshot.bookmarks.length} bookmarks</strong><span>{snapshot.browserHistory.length} history entries</span></div>
+            </>
+          )}
+          <div className="sidebar-footer"><span className="local-indicator" /><div><strong>Local workspace</strong><small>Data stays on this device.</small></div></div>
         </aside>
-        <ResizeHandle label="Resize workspace sidebar" value={panelSizes.sidebar} min={170} max={360}
-          onChange={(value) => setPanelSizes((current) => ({ ...current, sidebar: value }))} />
+
+        <ResizeHandle label="Resize navigation pane" value={panelSizes.sidebar} min={220} max={360} onChange={(value) => setPanelSizes((current) => ({ ...current, sidebar: value }))} />
 
         <main className="workspace-main">
-          {workspaceView === 'newchat' ? (
-            <NewConversation
-              provider={selectedProvider}
-              onProviderChange={setSelectedProvider}
-              prompt={draftPrompt}
-              onPromptChange={setDraftPrompt}
-              onSubmit={() => void startPromptInProvider(selectedProvider, draftPrompt)}
-              pending={Boolean(pendingPrompt)}
-              disabled={loading}
-            />
+          {workspaceView === 'browser' && browserOpen ? (
+            <section className="browser-dock browser-workspace" aria-label="Integrated browser">
+              <div className="browser-dock-top"><div className="browser-dock-title"><span className="dock-engine-mark">◉</span><div><strong>Integrated Browser</strong><small>Chromium session · your signed-in accounts</small></div></div><button type="button" className="dock-close" title="Return to workspace" onClick={() => navigateTo('work')}>×</button></div>
+              <div className="dock-tabs">
+                {browserState.tabs.map((tab) => <div className={'dock-tab' + (tab.id === browserState.activeTabId ? ' active' : '')} key={tab.id}><button type="button" className="dock-tab-select" onClick={() => void window.willai.activateTab(tab.id)} title={tab.url}>{tab.provider ? <span className={'provider-icon ' + tab.provider}>{providerIcons[tab.provider]}</span> : <span className="provider-icon web">●</span>}<span>{tab.title || 'New tab'}</span></button><button type="button" className="dock-tab-close" onClick={() => void window.willai.closeTab(tab.id)} title="Close tab">×</button></div>)}
+                <button type="button" className="dock-new-tab" onClick={() => void window.willai.createTab('https://chatgpt.com/')} title="New tab">＋</button>
+              </div>
+              <div className="dock-toolbar"><div className="dock-nav-buttons"><button type="button" disabled={!activeTab?.canGoBack} onClick={() => void window.willai.goBack()} title="Back">←</button><button type="button" disabled={!activeTab?.canGoForward} onClick={() => void window.willai.goForward()} title="Forward">→</button><button type="button" onClick={() => void window.willai.reload()} title="Reload">{activeTab?.isLoading ? '×' : '↻'}</button></div>
+                <form className="dock-address-form" onSubmit={(event) => { event.preventDefault(); void navigate(); }}><input ref={addressRef} value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Search or enter a website" spellCheck={false} aria-label="Browser address" /><button type="submit">Go</button></form>
+              </div>
+              <div className="browser-page-host" ref={hostRef} /><CaptureStatusPanel tab={activeTab} />
+            </section>
+          ) : workspaceView === 'newchat' ? (
+            <NewConversation provider={selectedProvider} onProviderChange={setSelectedProvider} prompt={draftPrompt} onPromptChange={setDraftPrompt} onSubmit={() => void startPromptInProvider(selectedProvider, draftPrompt)} pending={Boolean(pendingPrompt)} disabled={loading} />
           ) : workspaceView === 'prompts' ? (
             <WorkspaceTools mode="prompts" snapshot={snapshot} activeConversation={activeConversation} activeTab={activeTab} onRefresh={refreshSnapshot} onNotice={setNotice} />
           ) : workspaceView === 'notes' ? (
             <WorkspaceTools mode="notes" snapshot={snapshot} activeConversation={activeConversation} activeTab={activeTab} onRefresh={refreshSnapshot} onNotice={setNotice} />
           ) : workspaceView === 'library' ? (
             <WorkspaceTools mode="library" snapshot={snapshot} activeConversation={activeConversation} activeTab={activeTab} onRefresh={refreshSnapshot} onNotice={setNotice} />
-          ) : activeConversation ? (
-            <ConversationWorkbench
-              conversation={activeConversation}
-              allConversations={snapshot.conversations}
-              folders={snapshot.folders}
-              onRefresh={refreshSnapshot}
-              onInsertContext={insertContext}
-              onBack={() => { setActiveConversationId(null); setWorkspaceView('overview'); }}
-              onOpenNotes={() => setWorkspaceView('notes')}
-              onNotice={setNotice}
-            />
+          ) : workspaceView === 'work' && activeConversation ? (
+            <ConversationWorkbench conversation={activeConversation} allConversations={snapshot.conversations} folders={snapshot.folders} onRefresh={refreshSnapshot} onInsertContext={insertContext} onBack={() => { setActiveConversationId(null); setWorkspaceView('work'); }} onOpenNotes={() => navigateTo('notes')} onNotice={setNotice} />
+          ) : workspaceView === 'work' ? (
+            <WorkLibrary conversations={filteredConversations} onOpenConversation={openConversation} />
           ) : (
-            <WorkspaceHome
-              conversations={filteredConversations}
-              responseCount={responseCount}
-              nodeCount={nodeCount}
-              activeTab={activeTab}
-              onOpenProvider={openProvider}
-              onOpenConversation={openConversation}
-            />
+            <WorkspaceHome conversations={filteredConversations} responseCount={responseCount} nodeCount={nodeCount} activeTab={activeTab} onOpenProvider={openProvider} onOpenConversation={openConversation} />
           )}
           {loading && <div className="workspace-loading">Initialising your workspace…</div>}
         </main>
-        {browserOpen && (
-          <ResizeHandle label="Resize integrated browser" value={panelSizes.browser} min={250} max={900} reverse
-            onChange={(value) => setPanelSizes((current) => ({ ...current, browser: value }))} />
-        )}
-
-        {browserOpen ? (
-          <section className="browser-dock" aria-label="Integrated browser">
-            <div className="browser-dock-top">
-              <div className="browser-dock-title">
-                <span className="dock-engine-mark">◉</span>
-                <div><strong>Integrated browser</strong><small>Chromium runtime · inside WillAI-C</small></div>
-              </div>
-              <button type="button" className="dock-close" title="Hide browser" onClick={() => setBrowserOpen(false)}>×</button>
-            </div>
-
-            <div className="dock-tabs">
-              {browserState.tabs.map((tab) => (
-                <div className={'dock-tab' + (tab.id === browserState.activeTabId ? ' active' : '')} key={tab.id}>
-                  <button type="button" className="dock-tab-select" onClick={() => void window.willai.activateTab(tab.id)} title={tab.url}>
-                    {tab.provider
-                      ? <span className={'provider-icon ' + tab.provider}>{providerIcons[tab.provider]}</span>
-                      : <span className="provider-icon web">●</span>}
-                    <span>{tab.title || 'New tab'}</span>
-                  </button>
-                  <button type="button" className="dock-tab-close" onClick={() => void window.willai.closeTab(tab.id)} title="Close tab">×</button>
-                </div>
-              ))}
-              <button type="button" className="dock-new-tab" onClick={() => void window.willai.createTab('https://chatgpt.com/')} title="New AI tab">＋</button>
-            </div>
-
-            <div className="dock-toolbar">
-              <div className="dock-nav-buttons">
-                <button type="button" disabled={!activeTab?.canGoBack} onClick={() => void window.willai.goBack()} title="Back">←</button>
-                <button type="button" disabled={!activeTab?.canGoForward} onClick={() => void window.willai.goForward()} title="Forward">→</button>
-                <button type="button" onClick={() => void window.willai.reload()} title="Reload">{activeTab?.isLoading ? '×' : '↻'}</button>
-              </div>
-              <form className="dock-address-form" onSubmit={(event) => { event.preventDefault(); void navigate(); }}>
-                <input
-                  ref={addressRef}
-                  value={address}
-                  onChange={(event) => setAddress(event.target.value)}
-                  placeholder="Search or enter a website"
-                  spellCheck={false}
-                  aria-label="Browser address"
-                />
-                <button type="submit">Go</button>
-              </form>
-            </div>
-
-            <div className="browser-page-host" ref={hostRef} />
-            <CaptureStatusPanel tab={activeTab} />
-          </section>
-        ) : (
-          <button type="button" className="browser-reopen" onClick={() => setBrowserOpen(true)}>
-            <span>◉</span> Show integrated browser
-          </button>
-        )}
       </div>
+    </div>
+  );
+
+}
+
+function WorkLibrary({ conversations, onOpenConversation }: { conversations: Conversation[]; onOpenConversation: (conversation: Conversation) => void }) {
+  return (
+    <div className="work-library-screen">
+      <header className="work-library-header"><div><span className="section-eyebrow">YOUR WORKSPACE</span><h1>Work</h1><p>Open a conversation to continue working with its captured responses and editable nodes.</p></div><span className="section-count">{conversations.length} conversations</span></header>
+      {conversations.length ? <div className="work-library-list">{conversations.map((conversation) => (
+        <button type="button" className="work-library-row" key={conversation.id} onClick={() => onOpenConversation(conversation)}>
+          <span className={'provider-icon ' + conversation.provider}>{providerIcons[conversation.provider]}</span>
+          <span className="work-library-row-copy"><strong>{conversation.pinned ? '★ ' : ''}{conversation.title}</strong><small>{providerLabels[conversation.provider]} · {conversation.responses.length} responses · Updated {new Date(conversation.updatedAt).toLocaleString()}</small></span>
+          <span className="work-library-row-arrow">Open →</span>
+        </button>
+      ))}</div> : <div className="work-library-empty"><span className="empty-state-symbol">▤</span><strong>No conversations in this view</strong><p>Captured provider responses will appear here. Open a provider from the Browser workspace to get started.</p></div>}
     </div>
   );
 }
