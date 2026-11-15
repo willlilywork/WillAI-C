@@ -30,3 +30,11 @@ test('Browser navigation pane reflects open tabs and saved browser record counts
   assert.match(app, /browserState\.tabs\.map/);
   assert.match(app, /snapshot\.bookmarks\.length \+ snapshot\.browserHistory\.length/);
 });
+
+test('Opening a saved conversation does not create, activate, or navigate provider tabs', () => {
+  const app = fs.readFileSync(path.join(root, 'src/renderer/App.tsx'), 'utf8');
+  const start = app.indexOf('function openConversation(');
+  const end = app.indexOf('async function startPromptInProvider', start);
+  const body = app.slice(start, end);
+  assert.doesNotMatch(body, /createTab|activateTab|navigate\(/);
+});

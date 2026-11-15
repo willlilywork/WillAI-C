@@ -163,7 +163,7 @@ function App() {
     const offBrowser = window.willai.onBrowserState(setBrowserState);
     const offCapture = window.willai.onCapture((result) => {
       setActiveConversationId(result.conversationId);
-      setWorkspaceView('home');
+      setWorkspaceView('work');
       setBrowserOpen(false);
       setNotice(result.created
         ? 'Assistant response captured. It is now available in your WillAI workspace.'
@@ -267,19 +267,6 @@ function App() {
     setWorkspaceView('work');
     setActiveConversationId(conversation.id);
     setBrowserOpen(false);
-    const existing = browserState.tabs.find((tab) => {
-      try {
-        return new URL(tab.url).hostname === new URL(conversation.sourceUrl).hostname;
-      } catch {
-        return false;
-      }
-    });
-    if (existing) {
-      void window.willai.activateTab(existing.id);
-      void window.willai.navigate(conversation.sourceUrl);
-    } else {
-      void window.willai.createTab(conversation.sourceUrl);
-    }
   }
 
   async function startPromptInProvider(provider: Provider, value: string) {
