@@ -1,6 +1,6 @@
 {
   "name": "willai-c",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "WillAI-C — a Chromium-based desktop browser with integrated WillAI features.",
   "main": "src/main/index.cjs",

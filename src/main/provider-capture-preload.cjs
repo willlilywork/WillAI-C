@@ -336,10 +336,7 @@ const { ipcRenderer } = require('electron');
     start();
   }
 
-  ipcRenderer.on('willai:insert-context', (_event, context) => {
-    const text = '--- WillAI-C shared context ---\n'
-      + String(context || '')
-      + '\n--- End WillAI-C shared context ---\n\n';
+  function insertTextIntoComposer(text) {
     const composerSelectors = provider === 'chatgpt'
       ? ['#prompt-textarea', 'textarea[data-testid="prompt-textarea"]', '[contenteditable="true"][data-testid="prompt-textarea"]']
       : provider === 'claude'
@@ -368,17 +365,30 @@ const { ipcRenderer } = require('electron');
       const inserted = document.execCommand('insertText', false, text);
       if (!inserted) {
         const selection = window.getSelection();
-        if (selection) {
-          const range = selection.rangeCount ? selection.getRangeAt(0) : document.createRange();
-          range.deleteContents();
-          range.insertNode(document.createTextNode(text));
-          selection.removeAllRanges();
-          selection.addRange(range);
+        if (!selection) {
+          ipcRenderer.send('willai:context-insert-result', { ok: false, error: 'Could not access the provider text selection.' });
+          return;
         }
+        const range = selection.rangeCount ? selection.getRangeAt(0) : document.createRange();
+        range.deleteContents();
+        range.insertNode(document.createTextNode(text));
+        selection.removeAllRanges();
+        selection.addRange(range);
         composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
       }
     }
 
     ipcRenderer.send('willai:context-insert-result', { ok: true });
+  }
+
+  ipcRenderer.on('willai:insert-context', (_event, context) => {
+    const text = '--- WillAI-C shared context ---\n'
+      + String(context || '')
+      + '\n--- End WillAI-C shared context ---\n\n';
+    insertTextIntoComposer(text);
+  });
+
+  ipcRenderer.on('willai:insert-prompt', (_event, prompt) => {
+    insertTextIntoComposer(String(prompt || ''));
   });
 })();

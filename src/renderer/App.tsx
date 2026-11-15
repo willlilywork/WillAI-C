@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MarkdownIt from 'markdown-it';
 import './markdown.css';
+import WorkspaceTools from './WorkspaceTools';
 
 const providerLabels: Record<Provider, string> = {
   chatgpt: 'ChatGPT',
@@ -41,11 +42,18 @@ function MarkdownContent({
 
 function App() {
   const [browserState, setBrowserState] = useState<BrowserState>({ tabs: [], activeTabId: null });
-  const [snapshot, setSnapshot] = useState<WillAISnapshot>({ conversations: [] });
+  const [snapshot, setSnapshot] = useState<WillAISnapshot>({
+    conversations: [], folders: [], prompts: [], promptHistory: [], notes: [],
+    bookmarks: [], browserHistory: [], promptQueue: [], settings: { autoArchiveDays: 0, autoDeleteDays: 0 },
+  });
   const [address, setAddress] = useState('');
   const [search, setSearch] = useState('');
   const [browserOpen, setBrowserOpen] = useState(true);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [workspaceView, setWorkspaceView] = useState<'overview' | 'prompts' | 'notes' | 'library'>('overview');
+  const [folderFilter, setFolderFilter] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [bulkSelection, setBulkSelection] = useState<string[]>([]);
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -63,13 +71,23 @@ function App() {
 
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return snapshot.conversations;
-    return snapshot.conversations.filter((conversation) =>
-      conversation.title.toLowerCase().includes(query)
-      || providerLabels[conversation.provider].toLowerCase().includes(query)
-      || conversation.responses.some((response) => response.originalContent.toLowerCase().includes(query)),
-    );
-  }, [snapshot.conversations, search]);
+    const folderIds = new Set<string>();
+    if (folderFilter) {
+      const collect = (parentId: string) => {
+        folderIds.add(parentId);
+        for (const folder of snapshot.folders.filter((item) => item.parentId === parentId)) collect(folder.id);
+      };
+      collect(folderFilter);
+    }
+    return snapshot.conversations
+      .filter((conversation) => showArchived ? Boolean(conversation.archivedAt) : !conversation.archivedAt)
+      .filter((conversation) => !folderFilter || folderIds.has(conversation.folderId || ''))
+      .filter((conversation) => !query
+        || conversation.title.toLowerCase().includes(query)
+        || providerLabels[conversation.provider].toLowerCase().includes(query)
+        || conversation.responses.some((response) => response.originalContent.toLowerCase().includes(query)))
+      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt.localeCompare(a.updatedAt));
+  }, [snapshot.conversations, snapshot.folders, search, folderFilter, showArchived]);
 
   const responseCount = snapshot.conversations.reduce((total, item) => total + item.responses.length, 0);
   const nodeCount = snapshot.conversations.reduce(
@@ -81,10 +99,22 @@ function App() {
     const next = await window.willai.getSnapshot();
     setSnapshot(next);
     setActiveConversationId((current) => {
-      if (current && next.conversations.some((item) => item.id === current)) return current;
-      return next.conversations[0]?.id ?? null;
+      const folderIds = new Set<string>();
+      if (folderFilter) {
+        const collect = (parentId: string) => {
+          folderIds.add(parentId);
+          for (const folder of next.folders.filter((item) => item.parentId === parentId)) collect(folder.id);
+        };
+        collect(folderFilter);
+      }
+      const eligible = next.conversations.filter((item) =>
+        (showArchived ? Boolean(item.archivedAt) : !item.archivedAt)
+        && (!folderFilter || folderIds.has(item.folderId || '')),
+      );
+      if (current && eligible.some((item) => item.id === current)) return current;
+      return eligible[0]?.id ?? null;
     });
-  }, []);
+  }, [folderFilter, showArchived]);
 
   const updateBounds = useCallback(() => {
     const rect = hostRef.current?.getBoundingClientRect();
@@ -178,6 +208,7 @@ function App() {
   }
 
   async function openProvider(provider: Provider) {
+    setWorkspaceView('overview');
     setBrowserOpen(true);
     const existing = browserState.tabs.find((tab) => {
       try {
@@ -197,6 +228,7 @@ function App() {
   }
 
   function openConversation(conversation: Conversation) {
+    setWorkspaceView('overview');
     setActiveConversationId(conversation.id);
     setBrowserOpen(true);
     const existing = browserState.tabs.find((tab) => {
@@ -220,6 +252,42 @@ function App() {
     if (!result.ok) setNotice(result.error || 'Could not insert shared context.');
   }
 
+  async function createFolder(parentId: string | null = null) {
+    const name = window.prompt(parentId ? 'Subfolder name' : 'Folder name');
+    if (!name?.trim()) return;
+    await window.willai.createFolder({ name: name.trim(), parentId });
+    await refreshSnapshot();
+  }
+
+  async function deleteFolder(folder: WorkspaceFolder) {
+    if (!window.confirm('Delete "' + folder.name + '"? Conversations will move to its parent folder.')) return;
+    await window.willai.deleteFolder(folder.id);
+    if (folderFilter === folder.id) setFolderFilter(folder.parentId || null);
+    await refreshSnapshot();
+  }
+
+  async function toggleConversationSelection(conversationId: string) {
+    setBulkSelection((current) => current.includes(conversationId)
+      ? current.filter((id) => id !== conversationId)
+      : [...current, conversationId]);
+  }
+
+  async function deleteSelectedConversations() {
+    if (!bulkSelection.length) return;
+    if (!window.confirm('Permanently delete ' + bulkSelection.length + ' selected conversations?')) return;
+    const result = await window.willai.bulkDeleteConversations(bulkSelection);
+    setBulkSelection([]);
+    setNotice(result.deleted + ' conversations deleted.');
+    await refreshSnapshot();
+  }
+
+  async function setConversationFlag(conversationId: string, patch: {pinned?: boolean; archived?: boolean}) {
+    await window.willai.setConversationFlags(conversationId, patch);
+    await refreshSnapshot();
+  }
+
+
+
   return (
     <div className="willai-app">
       <header className="app-header">
@@ -233,6 +301,8 @@ function App() {
           <span className="header-caption">Your conversations, responses and working knowledge</span>
         </div>
         <div className="header-actions">
+          <button type="button" className="header-secondary" onClick={() => setWorkspaceView('prompts')}>Prompts</button>
+          <button type="button" className="header-secondary" onClick={() => setWorkspaceView('notes')}>Notes</button>
           <button type="button" className="header-secondary" onClick={() => setBrowserOpen((value) => !value)}>
             {browserOpen ? 'Hide browser' : 'Open browser'}
           </button>
@@ -250,16 +320,47 @@ function App() {
         <aside className="workspace-sidebar">
           <div className="sidebar-section">
             <div className="sidebar-kicker">WORKSPACE</div>
-            <button type="button" className="sidebar-nav active" onClick={() => setActiveConversationId(null)}>
+            <button type="button" className={'sidebar-nav' + (workspaceView === 'overview' ? ' active' : '')} onClick={() => { setWorkspaceView('overview'); setFolderFilter(null); setShowArchived(false); }}>
               <span className="nav-symbol">⌂</span><span>Overview</span>
             </button>
-            <div className="sidebar-nav static-nav">
-              <span className="nav-symbol">▤</span><span>Conversations</span><span className="nav-count">{snapshot.conversations.length}</span>
-            </div>
+            <button type="button" className={'sidebar-nav' + (workspaceView === 'prompts' ? ' active' : '')} onClick={() => setWorkspaceView('prompts')}>
+              <span className="nav-symbol">✎</span><span>Prompt Manager</span><span className="nav-count">{snapshot.prompts.length}</span>
+            </button>
+            <button type="button" className={'sidebar-nav' + (workspaceView === 'notes' ? ' active' : '')} onClick={() => setWorkspaceView('notes')}>
+              <span className="nav-symbol">▧</span><span>Notes</span><span className="nav-count">{snapshot.notes.length}</span>
+            </button>
+            <button type="button" className={'sidebar-nav' + (workspaceView === 'library' ? ' active' : '')} onClick={() => setWorkspaceView('library')}>
+              <span className="nav-symbol">⌖</span><span>Bookmarks & History</span>
+            </button>
           </div>
 
           <div className="sidebar-rule" />
 
+          <div className="sidebar-section folder-section">
+            <div className="sidebar-section-heading">
+              <span className="sidebar-kicker">FOLDERS</span>
+              <button type="button" className="sidebar-add" onClick={() => void createFolder(null)}>＋</button>
+            </div>
+            <button type="button" className={'folder-filter' + (!folderFilter && !showArchived ? ' active' : '')} onClick={() => { setFolderFilter(null); setShowArchived(false); setWorkspaceView('overview'); }}>
+              <span>All conversations</span><small>{snapshot.conversations.filter((item) => !item.archivedAt).length}</small>
+            </button>
+            {snapshot.folders.filter((folder) => !folder.parentId).map((folder) => (
+              <FolderSidebarItem
+                key={folder.id}
+                folder={folder}
+                allFolders={snapshot.folders}
+                activeId={folderFilter}
+                onSelect={(id) => { setFolderFilter(id); setShowArchived(false); setWorkspaceView('overview'); }}
+                onAddChild={(id) => void createFolder(id)}
+                onDelete={deleteFolder}
+              />
+            ))}
+            <button type="button" className={'folder-filter' + (showArchived ? ' active' : '')} onClick={() => { setShowArchived(true); setFolderFilter(null); setWorkspaceView('overview'); }}>
+              <span>Archived</span><small>{snapshot.conversations.filter((item) => item.archivedAt).length}</small>
+            </button>
+          </div>
+
+          <div className="sidebar-rule" />
           <div className="sidebar-section provider-section">
             <div className="sidebar-kicker">AI PROVIDERS</div>
             {(Object.keys(providerLabels) as Provider[]).map((provider) => (
@@ -282,21 +383,36 @@ function App() {
               <span>⌕</span>
               <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter conversations" />
             </label>
+            {bulkSelection.length > 0 && (
+              <div className="bulk-actions">
+                <span>{bulkSelection.length} selected</span>
+                <button type="button" onClick={() => void deleteSelectedConversations()}>Delete</button>
+                <button type="button" onClick={() => setBulkSelection([])}>Clear</button>
+              </div>
+            )}
             <div className="conversation-list">
               {filteredConversations.map((conversation) => (
-                <button
-                  type="button"
-                  key={conversation.id}
-                  className={'conversation-link' + (activeConversationId === conversation.id ? ' active' : '')}
-                  onClick={() => openConversation(conversation)}
-                  title={conversation.title}
-                >
-                  <span className={'provider-dot ' + conversation.provider} />
-                  <span className="conversation-link-main">
-                    <span className="conversation-link-title">{conversation.title}</span>
-                    <small>{providerLabels[conversation.provider]} · {conversation.responses.length} responses</small>
-                  </span>
-                </button>
+                <div className="conversation-row" key={conversation.id}>
+                  <input
+                    type="checkbox"
+                    checked={bulkSelection.includes(conversation.id)}
+                    onChange={() => void toggleConversationSelection(conversation.id)}
+                    aria-label={'Select ' + conversation.title}
+                  />
+                  <button
+                    type="button"
+                    className={'conversation-link' + (activeConversationId === conversation.id && workspaceView === 'overview' ? ' active' : '')}
+                    onClick={() => openConversation(conversation)}
+                    title={conversation.title}
+                  >
+                    <span className={'provider-dot ' + conversation.provider} />
+                    <span className="conversation-link-main">
+                      <span className="conversation-link-title">{conversation.pinned ? '★ ' : ''}{conversation.title}</span>
+                      <small>{providerLabels[conversation.provider]} · {conversation.responses.length} responses · {new Date(conversation.updatedAt).toLocaleDateString()}</small>
+                    </span>
+                  </button>
+                  <button type="button" className="conversation-row-more" title={conversation.pinned ? 'Unpin conversation' : 'Pin conversation'} onClick={() => void setConversationFlag(conversation.id, { pinned: !conversation.pinned })}>{conversation.pinned ? '★' : '☆'}</button>
+                </div>
               ))}
               {!filteredConversations.length && (
                 <div className="empty-sidebar">
@@ -315,16 +431,25 @@ function App() {
         </aside>
 
         <main className="workspace-main">
-          {activeConversation ? (
+          {workspaceView === 'prompts' ? (
+            <WorkspaceTools mode="prompts" snapshot={snapshot} activeConversation={activeConversation} activeTab={activeTab} onRefresh={refreshSnapshot} onNotice={setNotice} />
+          ) : workspaceView === 'notes' ? (
+            <WorkspaceTools mode="notes" snapshot={snapshot} activeConversation={activeConversation} activeTab={activeTab} onRefresh={refreshSnapshot} onNotice={setNotice} />
+          ) : workspaceView === 'library' ? (
+            <WorkspaceTools mode="library" snapshot={snapshot} activeConversation={activeConversation} activeTab={activeTab} onRefresh={refreshSnapshot} onNotice={setNotice} />
+          ) : activeConversation ? (
             <ConversationWorkbench
               conversation={activeConversation}
+              allConversations={snapshot.conversations}
+              folders={snapshot.folders}
               onRefresh={refreshSnapshot}
               onInsertContext={insertContext}
-              onBack={() => setActiveConversationId(null)}
+              onBack={() => { setActiveConversationId(null); setWorkspaceView('overview'); }}
+              onNotice={setNotice}
             />
           ) : (
             <WorkspaceHome
-              conversations={snapshot.conversations}
+              conversations={filteredConversations}
               responseCount={responseCount}
               nodeCount={nodeCount}
               activeTab={activeTab}
@@ -388,6 +513,50 @@ function App() {
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+function FolderSidebarItem({
+  folder,
+  allFolders,
+  activeId,
+  onSelect,
+  onAddChild,
+  onDelete,
+  depth = 0,
+}: {
+  folder: WorkspaceFolder;
+  allFolders: WorkspaceFolder[];
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  onAddChild: (id: string) => void;
+  onDelete: (folder: WorkspaceFolder) => void;
+  depth?: number;
+}) {
+  const children = allFolders.filter((item) => item.parentId === folder.id);
+  return (
+    <div className="folder-tree-item">
+      <div className={'folder-filter-row' + (activeId === folder.id ? ' active' : '')}>
+        <button type="button" className="folder-filter" style={{ paddingLeft: 10 + depth * 13, borderLeftColor: folder.color }} onClick={() => onSelect(folder.id)}>
+          <span>{folder.icon} {folder.name}</span>
+          {children.length > 0 && <small>{children.length} subfolders</small>}
+        </button>
+        <button type="button" className="folder-row-action" title="Add subfolder" onClick={() => onAddChild(folder.id)}>＋</button>
+        <button type="button" className="folder-row-action" title="Delete folder" onClick={() => onDelete(folder)}>×</button>
+      </div>
+      {children.map((child) => (
+        <FolderSidebarItem
+          key={child.id}
+          folder={child}
+          allFolders={allFolders}
+          activeId={activeId}
+          onSelect={onSelect}
+          onAddChild={onAddChild}
+          onDelete={onDelete}
+          depth={depth + 1}
+        />
+      ))}
     </div>
   );
 }
@@ -524,43 +693,62 @@ function CaptureStatusPanel({ tab }: { tab: BrowserTab | null }) {
 }
 
 function ConversationWorkbench({
-  conversation,
-  onRefresh,
-  onInsertContext,
-  onBack,
+  conversation, allConversations, folders, onRefresh, onInsertContext, onBack, onOpenNotes, onNotice,
 }: {
   conversation: Conversation;
+  allConversations: Conversation[];
+  folders: WorkspaceFolder[];
   onRefresh: () => Promise<void>;
   onInsertContext: () => Promise<void>;
   onBack: () => void;
+  onOpenNotes: () => void;
+  onNotice: (message: string) => void;
 }) {
   const [selectedResponseId, setSelectedResponseId] = useState(conversation.responses.at(-1)?.id ?? null);
-
-  useEffect(() => {
-    setSelectedResponseId(conversation.responses.at(-1)?.id ?? null);
-  }, [conversation.id, conversation.responses.length]);
+  const [referencesOpen, setReferencesOpen] = useState(false);
+  useEffect(() => setSelectedResponseId(conversation.responses.at(-1)?.id ?? null), [conversation.id, conversation.responses.length]);
 
   const response = conversation.responses.find((item) => item.id === selectedResponseId) ?? conversation.responses.at(-1) ?? null;
   const sharedCount = conversation.responses.flatMap((item) => item.nodes).filter((node) => node.includeInModelContext && !node.deletedAt).length;
+  const references = conversation.referenceConversationIds || [];
 
   async function addNode(responseId: string, parentId: string | null) {
     await window.willai.createChildNode(responseId, parentId);
     await onRefresh();
   }
-
   async function saveNode(nodeId: string, content: string) {
     await window.willai.updateNode(nodeId, content);
     await onRefresh();
   }
-
   async function setShared(nodeId: string, enabled: boolean) {
     await window.willai.setNodeContext(nodeId, enabled);
     await onRefresh();
   }
-
   async function deleteNode(nodeId: string) {
     if (!window.confirm('Delete this node and all of its descendants?')) return;
     await window.willai.deleteNode(nodeId);
+    await onRefresh();
+  }
+  async function updateReferences(referenceId: string, enabled: boolean) {
+    const next = enabled ? [...references, referenceId] : references.filter((id) => id !== referenceId);
+    await window.willai.setConversationReferences(conversation.id, next);
+    await onRefresh();
+  }
+  async function exportConversation(format: 'txt' | 'markdown' | 'html' | 'json' | 'pdf') {
+    try {
+      const result = await window.willai.exportConversation(conversation.id, format);
+      onNotice(result.canceled ? 'Export cancelled.' : 'Conversation exported to ' + result.filePath);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : 'Export failed.');
+    }
+  }
+  async function setFlag(patch: {pinned?: boolean; archived?: boolean}) {
+    await window.willai.setConversationFlags(conversation.id, patch);
+    if (patch.archived) onBack();
+    await onRefresh();
+  }
+  async function moveToFolder(folderId: string) {
+    await window.willai.moveConversation(conversation.id, folderId || null);
     await onRefresh();
   }
 
@@ -572,36 +760,69 @@ function ConversationWorkbench({
           <span className={'provider-large-icon ' + conversation.provider}>{providerIcons[conversation.provider]}</span>
           <div><span className="section-eyebrow">{providerLabels[conversation.provider]} CONVERSATION</span><h1>{conversation.title}</h1></div>
         </div>
-        <div className="conversation-subtitle">{conversation.sourceUrl} <span>·</span> {conversation.responses.length} original responses</div>
+        <div className="conversation-subtitle">{conversation.sourceUrl} <span>·</span> {conversation.responses.length} original responses <span>·</span> updated {new Date(conversation.updatedAt).toLocaleString()}</div>
+        <div className="conversation-management-actions">
+          <button type="button" onClick={() => void setFlag({ pinned: !conversation.pinned })}>{conversation.pinned ? '★ Pinned' : '☆ Pin'}</button>
+          <button type="button" onClick={() => void setFlag({ archived: true })}>Archive</button>
+          <button type="button" onClick={onOpenNotes}>Chat notes</button>
+          <label>Folder
+            <select value={conversation.folderId || ''} onChange={(event) => void moveToFolder(event.target.value)}>
+              <option value="">Unfiled</option>
+              {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+            </select>
+          </label>
+          <div className="export-actions">
+            <button type="button" onClick={() => void exportConversation('markdown')}>Export MD</button>
+            <button type="button" onClick={() => void exportConversation('html')}>HTML</button>
+            <button type="button" onClick={() => void exportConversation('txt')}>TXT</button>
+            <button type="button" onClick={() => void exportConversation('json')}>JSON</button>
+            <button type="button" onClick={() => void exportConversation('pdf')}>PDF / Print</button>
+          </div>
+        </div>
       </div>
-
       <div className="conversation-actions-row">
-        <button type="button" className="insert-context-button" disabled={!conversation.sharedContextPreview} onClick={() => void onInsertContext()}>
-          Add selected context to provider composer
-        </button>
-        <span className="shared-status">{sharedCount} nodes selected as model context · remaining nodes stay private</span>
+        <button type="button" className="insert-context-button" disabled={!conversation.sharedContextPreview} onClick={() => void onInsertContext()}>Add selected context to provider composer</button>
+        <span className="shared-status">{sharedCount} nodes selected as model context · {references.length} reference conversations</span>
+        <button type="button" className="reference-toggle" onClick={() => setReferencesOpen((value) => !value)}>{referencesOpen ? 'Hide references' : 'Manage references'}</button>
       </div>
-
+      {referencesOpen && (
+        <section className="reference-panel">
+          <div><strong>Reference conversations</strong><small>Only nodes explicitly shared with model context are included.</small></div>
+          <div className="reference-list">
+            {allConversations.filter((item) => item.id !== conversation.id).map((item) => (
+              <label key={item.id}>
+                <input type="checkbox" checked={references.includes(item.id)} onChange={(event) => void updateReferences(item.id, event.target.checked)} />
+                <span>{item.title}</span><small>{item.provider}</small>
+              </label>
+            ))}
+          </div>
+        </section>
+      )}
       <div className="response-workspace-scroll">
         <section className="response-navigation">
           <div className="section-eyebrow">ORIGINAL RESPONSES</div>
           <div className="response-navigation-list">
             {conversation.responses.map((item, index) => (
-              <button key={item.id} type="button" className={'response-navigation-item' + (response?.id === item.id ? ' active' : '')} onClick={() => setSelectedResponseId(item.id)}>
-                <span>Response {String(index + 1).padStart(2, '0')}</span>
-                <small>{new Date(item.capturedAt).toLocaleString()}</small>
-              </button>
+              <div className="response-nav-wrap" key={item.id}>
+                <button type="button" className={'response-navigation-item' + (response?.id === item.id ? ' active' : '')} onClick={() => setSelectedResponseId(item.id)}>
+                  <span>{item.pinned ? '★ ' : ''}Response {String(index + 1).padStart(2, '0')}</span>
+                  <small>{new Date(item.capturedAt).toLocaleString()}</small>
+                </button>
+                <button type="button" className="response-pin-button" title={item.pinned ? 'Unpin response' : 'Pin response'} onClick={() => void window.willai.setResponsePinned(item.id, !item.pinned).then(onRefresh)}>{item.pinned ? '★' : '☆'}</button>
+              </div>
             ))}
           </div>
         </section>
-
         {response && (
           <div className="response-editor-layout">
             <section className="original-response-card">
               <div className="response-card-heading"><span className="section-eyebrow">SOURCE RECORD</span><span className="read-only-label">Original response · read only</span></div>
               <MarkdownContent content={response.originalContent} className="source-markdown" />
+              <div className="response-export-actions">
+                <button type="button" onClick={() => void window.willai.copyText(response.originalContent).then(() => onNotice('Original response copied as Markdown.'))}>Copy Markdown</button>
+                <button type="button" onClick={() => void window.willai.copyText(response.originalContent.replace(/[#*_~>|-]/g, '')).then(() => onNotice('Plain text copied.'))}>Copy plain text</button>
+              </div>
             </section>
-
             <section className="working-nodes-section">
               <div className="working-nodes-heading">
                 <div><span className="section-eyebrow">YOUR EDITABLE CONTENT</span><h2>Working nodes</h2></div>
@@ -622,7 +843,6 @@ function ConversationWorkbench({
     </div>
   );
 }
-
 function NodeEditor({
   node,
   allNodes,

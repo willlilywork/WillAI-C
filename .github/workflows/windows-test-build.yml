@@ -43,6 +43,7 @@ jobs:
           node --check src/main/browser.cjs
           node --check src/main/preload.cjs
           node --check src/main/provider-capture-preload.cjs
+          node --check src/main/markdown-nodes.cjs
 
       - name: Package Windows installer
         run: npm run dist
@@ -95,11 +96,11 @@ jobs:
               target_commitish: context.sha,
               name: 'WillAI-C Windows Test Build #' + context.runNumber,
               body: [
-                'Unofficial test build for the rebuild/desktop-first-foundation branch.',
+                'WillAI-C 0.2.0 local-workspace feature build from rebuild/desktop-first-foundation.',
                 '',
                 'Commit: ' + context.sha,
                 '',
-                '- Windows x64 NSIS installer.',
+                '- Windows x64 NSIS installer. Version 0.2.0.',
                 '- Unsigned test build; Windows may display a SmartScreen warning.',
                 '- For evaluation only. Do not treat this as a production release.',
                 '- This build does not change or merge into main.'

@@ -139,20 +139,74 @@ The following items are explicitly designated as Pro capabilities in the supplie
 - **Advanced Export and Print (Pro):** bulk exports, folder exports, selected-message exports, and full print templates.
 - **Unlimited References and Profiles (Pro):** unlimited reference chats and unlimited custom instruction profiles.
 
-## Implementation status at the browser-foundation milestone
+## Implementation status — WillAI-C 0.2.0
 
-Implemented in the current foundation:
-- Chromium pages are rendered inside WillAI-C through Electron `WebContentsView`, not in an external browser.
-- Browser tabs, address/search navigation, back/forward/reload, and AI provider shortcuts.
-- A persistent Chromium session partition for user sign-ins and site data.
-- Internal, sandboxed provider response capture for ChatGPT, Claude, and DeepSeek.
-- Original Response preservation, editable Working Nodes, child nodes, deletion, and explicit model-context selection.
-- Insert selected context into the active in-browser provider composer without submitting it automatically.
-- Local capture and node persistence.
+This release adds a local workspace-organization and productivity slice on top of the browser/response foundation. The feature register above remains the complete product scope; the following lists distinguish implemented behavior from items that are not included in this release.
 
-Not yet implemented:
-- The conversation organization, prompt management, advanced browser, export/media, notes, image, GPT Store, sync, community, Showcase, monetization, and Pro capabilities listed above.
-- Browser-history/bookmark managers, session restoration UI, folder persistence, and full site-settings UI.
-- Manual end-to-end verification against live logged-in provider accounts and the packaged Windows application.
+### Implemented in 0.2.0
 
-The feature register is the scope reference. The current implementation status is deliberately narrower and must not be confused with the complete product.
+**Browser and local library**
+- Chromium pages remain hosted in in-app Electron WebContentsView tabs with a persistent profile, popup-to-tab handling, prompted site permissions, and download save dialogs.
+- Browser visits are recorded locally and can be revisited from the workspace.
+- Users can save and remove web bookmarks.
+
+**Conversation organization**
+- Local folders and subfolders can be created, selected, and deleted; deleting a folder moves its conversations to the parent folder.
+- Conversations can be assigned to a folder, pinned, or archived.
+- The workspace can filter by a selected folder or by archived conversations.
+- Conversations can be selected and bulk-deleted.
+- Conversation and response timestamps are displayed.
+- Individual assistant responses can be pinned.
+
+**Prompts**
+- A local Prompt Manager supports creating, editing, deleting, searching, categorizing, and favouriting saved prompts.
+- Reusable prompt variables use the {{variable}} syntax and are resolved before insertion into the active provider composer.
+- Usage of saved prompts is recorded in local prompt history.
+- Prompt collections can be imported from and exported to JSON.
+- A local prompt queue can hold items and insert them into the active provider composer one at a time. The user reviews and submits each inserted prompt; this release does not automatically send a queue.
+- Prompt records can be labelled as chains, but execution of multi-step prompt chains is not implemented.
+
+**Notes and model context**
+- Global notes and notes attached to a conversation can be created, edited, and deleted locally.
+- A conversation can reference other conversations. Referenced context includes only nodes that the user explicitly enabled for Model Context; private nodes remain excluded.
+- Original Response, Working Nodes, and Model Context remain separate.
+
+**Export**
+- A conversation's Original Responses can be exported as Markdown, TXT, HTML, JSON, or PDF.
+- PDF export uses the operating system's save dialog and Electron's print-to-PDF pipeline.
+- The current export control exports the whole conversation. Selection-based export, bulk export, ZIP packaging, and advanced print templates are not implemented.
+
+**Response interaction**
+- Original responses and Working Nodes preserve Markdown rendering.
+- Captured Markdown is parsed into independent, nested Working Nodes.
+- Nodes can be edited, deleted, extended, and explicitly included in or excluded from later model context.
+
+### Implemented foundation carried forward
+- Workspace-centered desktop shell with an integrated Chromium dock.
+- Tabs, navigation, address/search field, back/forward/reload, and AI-provider shortcuts.
+- Persistent browser session.
+- Internal provider capture adapters for ChatGPT, Claude, and DeepSeek, with visible diagnostics.
+- Local JSON persistence and migration of existing local data to the 0.2.0 workspace collections without dropping existing conversations.
+- Sandboxed provider preload and context-isolated application preload.
+
+### Not implemented in 0.2.0
+
+The following items remain in the feature register but are not delivered in this release:
+- Drag-and-drop folder organisation, folder images, configurable folder colours/icons in the UI, right-side folder panel, resizable sidebar, automatic folders for Custom GPTs, automatic archive/delete execution, and cross-device sync.
+- Global search across conversations, prompts, notes, and highlights; the current conversation filter searches conversation titles and captured response text only.
+- Conversation tree map/PNG export, minimap, text highlights, annotations, and a full message navigator with user/assistant filters, day grouping, prompt navigation, long-chat loading controls, and full-chat find.
+- Prompt optimisation, automatic prompt queue submission, executable multi-step chains, slash autocomplete, arrow-key prompt recall, right-click prompt menus, public/community prompt discovery and sharing, smart replace, custom instruction profiles, and automatic custom instructions.
+- Advanced language/tone/model controls, copy modes, word/character counters, custom conversation width, ad filtering, send-key behaviour settings, auto splitter/summarizer, and screenshot actions.
+- ChatGPT settings overlay and appearance controls.
+- Bulk/selected-message export, ZIP/PDF batches, rich print templates, audio playback/download, voice mode, speech-to-text, and text-to-speech.
+- Image Gallery, image sharing/Showcase, paid recipes, GPT Store discovery, and newsletter archive.
+- Pro plans and centralized entitlement enforcement.
+- Cloud sync, community services, Showcase hosting, storefronts, payments, and public sharing backend.
+- Retention settings are persisted as preferences but automatic retention jobs are not active.
+- Live manual verification against current logged-in ChatGPT, Claude, and DeepSeek pages, including exact comparison with each provider's Copy output, and hands-on verification of the packaged Windows application.
+
+### Verification boundary
+
+Automated tests, type checking, renderer build, Electron syntax checks, and Windows packaging verify software build integrity. They do not prove that provider DOM adapters remain compatible with the latest live provider interfaces. Provider capture must be tested against actual signed-in accounts after installation.
+
+The feature register is the complete product scope. A feature not listed under the implemented sections above must not be described as delivered by version 0.2.0.

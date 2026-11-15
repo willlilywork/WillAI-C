@@ -51,15 +51,24 @@ class LocalStore {
     this.filePath = path.join(userDataPath, 'willai-c-data.json');
     fs.mkdirSync(userDataPath, { recursive: true });
     this.state = this.load();
-    if (!fs.existsSync(this.filePath)) this.persist();
+    if (!fs.existsSync(this.filePath) || this.needsPersist) this.persist();
   }
 
   load() {
     if (!fs.existsSync(this.filePath)) {
       return {
         schemaVersion: 1,
+        dataVersion: 2,
         bridgeToken: crypto.randomBytes(32).toString('hex'),
         conversations: [],
+        folders: [],
+        prompts: [],
+        promptHistory: [],
+        notes: [],
+        bookmarks: [],
+        browserHistory: [],
+        promptQueue: [],
+        settings: { autoArchiveDays: 0, autoDeleteDays: 0 },
       };
     }
 
@@ -69,14 +78,46 @@ class LocalStore {
         throw new Error('Unsupported local data schema.');
       }
       if (!parsed.bridgeToken) parsed.bridgeToken = crypto.randomBytes(32).toString('hex');
+      this.needsPersist = false;
+      const collections = ['folders', 'prompts', 'promptHistory', 'notes', 'bookmarks', 'browserHistory', 'promptQueue'];
+      for (const key of collections) {
+        if (!Array.isArray(parsed[key])) {
+          parsed[key] = [];
+          this.needsPersist = true;
+        }
+      }
+      if (!parsed.settings || typeof parsed.settings !== 'object') {
+        parsed.settings = { autoArchiveDays: 0, autoDeleteDays: 0 };
+        this.needsPersist = true;
+      }
+      if (parsed.dataVersion !== 2) {
+        parsed.dataVersion = 2;
+        this.needsPersist = true;
+      }
+      for (const conversation of parsed.conversations) {
+        if (!Array.isArray(conversation.referenceConversationIds)) conversation.referenceConversationIds = [];
+        if (conversation.folderId === undefined) conversation.folderId = null;
+        if (conversation.pinned === undefined) conversation.pinned = false;
+        if (conversation.archivedAt === undefined) conversation.archivedAt = null;
+        if (conversation.temporary === undefined) conversation.temporary = false;
+      }
       return parsed;
     } catch (error) {
       const backupPath = `${this.filePath}.corrupt-${Date.now()}`;
       fs.renameSync(this.filePath, backupPath);
       return {
         schemaVersion: 1,
+        dataVersion: 2,
         bridgeToken: crypto.randomBytes(32).toString('hex'),
         conversations: [],
+        folders: [],
+        prompts: [],
+        promptHistory: [],
+        notes: [],
+        bookmarks: [],
+        browserHistory: [],
+        promptQueue: [],
+        settings: { autoArchiveDays: 0, autoDeleteDays: 0 },
       };
     }
   }
@@ -102,7 +143,334 @@ class LocalStore {
         })),
         sharedContextPreview: this.buildContext(conversation),
       }));
-    return { conversations };
+    return {
+      conversations,
+      folders: [...this.state.folders].sort((a, b) => a.position - b.position),
+      prompts: [...this.state.prompts].sort((a, b) => Number(b.favorite) - Number(a.favorite) || b.updatedAt.localeCompare(a.updatedAt)),
+      promptHistory: [...this.state.promptHistory].slice(0, 100),
+      notes: [...this.state.notes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+      bookmarks: [...this.state.bookmarks].sort((a, b) => a.name.localeCompare(b.name)),
+      browserHistory: [...this.state.browserHistory].slice(0, 200),
+      promptQueue: [...this.state.promptQueue].sort((a, b) => a.position - b.position),
+      settings: { ...this.state.settings },
+    };
+  }
+
+  createFolder(input) {
+    const name = cleanText(input?.name, 80);
+    if (!name) throw new Error('Folder name is required.');
+    const parentId = input?.parentId ? String(input.parentId) : null;
+    if (parentId && !this.state.folders.some((folder) => folder.id === parentId)) {
+      throw new Error('Parent folder not found.');
+    }
+    const timestamp = now();
+    const siblings = this.state.folders.filter((folder) => (folder.parentId || null) === parentId);
+    const folder = {
+      id: crypto.randomUUID(),
+      name,
+      parentId,
+      color: /^#[0-9a-f]{6}$/i.test(String(input?.color || '')) ? input.color : '#8db69a',
+      icon: cleanText(input?.icon, 8) || '▤',
+      position: siblings.length,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.state.folders.push(folder);
+    this.persist();
+    return { folderId: folder.id };
+  }
+
+  updateFolder(folderId, patch = {}) {
+    const folder = this.state.folders.find((item) => item.id === folderId);
+    if (!folder) throw new Error('Folder not found.');
+    if (patch.name !== undefined) {
+      const name = cleanText(patch.name, 80);
+      if (!name) throw new Error('Folder name cannot be empty.');
+      folder.name = name;
+    }
+    if (patch.color !== undefined && /^#[0-9a-f]{6}$/i.test(String(patch.color))) folder.color = patch.color;
+    if (patch.icon !== undefined) folder.icon = cleanText(patch.icon, 8) || '▤';
+    folder.updatedAt = now();
+    this.persist();
+    return { ok: true };
+  }
+
+  deleteFolder(folderId) {
+    const folder = this.state.folders.find((item) => item.id === folderId);
+    if (!folder) throw new Error('Folder not found.');
+    for (const item of this.state.folders) {
+      if (item.parentId === folderId) item.parentId = folder.parentId || null;
+    }
+    for (const conversation of this.state.conversations) {
+      if (conversation.folderId === folderId) conversation.folderId = folder.parentId || null;
+    }
+    this.state.folders = this.state.folders.filter((item) => item.id !== folderId);
+    this.persist();
+    return { ok: true };
+  }
+
+  moveConversation(conversationId, folderId) {
+    const conversation = this.state.conversations.find((item) => item.id === conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    if (folderId && !this.state.folders.some((folder) => folder.id === folderId)) throw new Error('Folder not found.');
+    conversation.folderId = folderId || null;
+    conversation.updatedAt = now();
+    this.persist();
+    return { ok: true };
+  }
+
+  setConversationFlags(conversationId, patch = {}) {
+    const conversation = this.state.conversations.find((item) => item.id === conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    if (patch.pinned !== undefined) conversation.pinned = Boolean(patch.pinned);
+    if (patch.archived !== undefined) conversation.archivedAt = patch.archived ? now() : null;
+    if (patch.temporary !== undefined) conversation.temporary = Boolean(patch.temporary);
+    conversation.updatedAt = now();
+    this.persist();
+    return { ok: true };
+  }
+
+  bulkDeleteConversations(conversationIds) {
+    const ids = new Set((Array.isArray(conversationIds) ? conversationIds : []).map(String));
+    if (!ids.size) return { deleted: 0 };
+    const before = this.state.conversations.length;
+    this.state.conversations = this.state.conversations.filter((item) => !ids.has(item.id));
+    this.state.notes = this.state.notes.filter((note) => !note.conversationId || !ids.has(note.conversationId));
+    for (const conversation of this.state.conversations) {
+      conversation.referenceConversationIds = (conversation.referenceConversationIds || []).filter((id) => !ids.has(id));
+    }
+    this.persist();
+    return { deleted: before - this.state.conversations.length };
+  }
+
+  savePrompt(input = {}) {
+    const title = cleanText(input.title, 120);
+    const content = cleanText(input.content, 12000);
+    if (!title || !content) throw new Error('Prompt title and content are required.');
+    const timestamp = now();
+    const existing = input.id ? this.state.prompts.find((item) => item.id === String(input.id)) : null;
+    const prompt = existing || {
+      id: crypto.randomUUID(),
+      createdAt: timestamp,
+      favorite: false,
+      usageCount: 0,
+    };
+    prompt.title = title;
+    prompt.content = content;
+    prompt.category = cleanText(input.category, 60) || 'General';
+    prompt.tags = Array.isArray(input.tags) ? [...new Set(input.tags.map((tag) => cleanText(tag, 30)).filter(Boolean))].slice(0, 20) : [];
+    prompt.kind = input.kind === 'chain' ? 'chain' : 'prompt';
+    prompt.steps = prompt.kind === 'chain' && Array.isArray(input.steps)
+      ? input.steps.map((step) => cleanText(step, 12000)).filter(Boolean).slice(0, 30)
+      : [];
+    prompt.favorite = input.favorite === undefined ? Boolean(prompt.favorite) : Boolean(input.favorite);
+    prompt.updatedAt = timestamp;
+    if (!existing) this.state.prompts.push(prompt);
+    this.persist();
+    return { promptId: prompt.id };
+  }
+
+  deletePrompt(promptId) {
+    this.state.prompts = this.state.prompts.filter((item) => item.id !== promptId);
+    this.persist();
+    return { ok: true };
+  }
+
+  setPromptFavorite(promptId, favorite) {
+    const prompt = this.state.prompts.find((item) => item.id === promptId);
+    if (!prompt) throw new Error('Prompt not found.');
+    prompt.favorite = Boolean(favorite);
+    prompt.updatedAt = now();
+    this.persist();
+    return { ok: true };
+  }
+
+  expandPrompt(promptId, variables = {}) {
+    const prompt = this.state.prompts.find((item) => item.id === promptId);
+    if (!prompt) throw new Error('Prompt not found.');
+    const content = prompt.content.replace(/\{\{([a-zA-Z0-9_-]+)\}\}/g, (_match, key) => {
+      return Object.prototype.hasOwnProperty.call(variables, key) ? String(variables[key]) : `{{${key}}}`;
+    });
+    prompt.usageCount = (prompt.usageCount || 0) + 1;
+    prompt.updatedAt = now();
+    this.state.promptHistory.unshift({
+      id: crypto.randomUUID(),
+      promptId: prompt.id,
+      promptTitle: prompt.title,
+      content,
+      usedAt: now(),
+    });
+    this.state.promptHistory = this.state.promptHistory.slice(0, 200);
+    this.persist();
+    return { content, variables: [...new Set([...prompt.content.matchAll(/\{\{([a-zA-Z0-9_-]+)\}\}/g)].map((match) => match[1]))] };
+  }
+
+  recordPromptHistory(content, provider = null) {
+    const value = cleanText(content, 12000);
+    if (!value) return { ok: false };
+    this.state.promptHistory.unshift({
+      id: crypto.randomUUID(),
+      promptId: null,
+      promptTitle: 'Manual prompt',
+      content: value,
+      provider: cleanText(provider, 24) || null,
+      usedAt: now(),
+    });
+    this.state.promptHistory = this.state.promptHistory.slice(0, 200);
+    this.persist();
+    return { ok: true };
+  }
+
+  importPrompts(input) {
+    const items = Array.isArray(input) ? input : input?.prompts;
+    if (!Array.isArray(items)) throw new Error('Prompt import must contain a prompts array.');
+    let imported = 0;
+    for (const item of items.slice(0, 1000)) {
+      try {
+        this.savePrompt({
+          title: item.title,
+          content: item.content,
+          category: item.category,
+          tags: item.tags,
+          kind: item.kind,
+          steps: item.steps,
+          favorite: item.favorite,
+        });
+        imported += 1;
+      } catch {}
+    }
+    return { imported };
+  }
+
+  exportPrompts() {
+    return JSON.stringify({ version: 1, prompts: this.state.prompts }, null, 2);
+  }
+
+  removePromptQueueItem(itemId) {
+    this.state.promptQueue = this.state.promptQueue.filter((item) => item.id !== itemId);
+    this.state.promptQueue.forEach((item, index) => { item.position = index; });
+    this.persist();
+    return { ok: true };
+  }
+
+  enqueuePrompt(content, title = 'Queued prompt') {
+    const value = cleanText(content, 12000);
+    if (!value) throw new Error('Prompt content is required.');
+    const item = {
+      id: crypto.randomUUID(),
+      title: cleanText(title, 120) || 'Queued prompt',
+      content: value,
+      position: this.state.promptQueue.length,
+      createdAt: now(),
+    };
+    this.state.promptQueue.push(item);
+    this.persist();
+    return { itemId: item.id };
+  }
+
+  saveNote(input = {}) {
+    const content = cleanText(input.content, 30000);
+    if (!content) throw new Error('Note content is required.');
+    const conversationId = input.conversationId ? String(input.conversationId) : null;
+    if (conversationId && !this.state.conversations.some((item) => item.id === conversationId)) {
+      throw new Error('Conversation not found.');
+    }
+    const timestamp = now();
+    const existing = input.id ? this.state.notes.find((item) => item.id === String(input.id)) : null;
+    const note = existing || { id: crypto.randomUUID(), createdAt: timestamp, pinned: false };
+    note.title = cleanText(input.title, 120) || content.split('\n')[0].slice(0, 80) || 'Untitled note';
+    note.content = content;
+    note.conversationId = conversationId;
+    note.pinned = input.pinned === undefined ? Boolean(note.pinned) : Boolean(input.pinned);
+    note.updatedAt = timestamp;
+    if (!existing) this.state.notes.push(note);
+    this.persist();
+    return { noteId: note.id };
+  }
+
+  deleteNote(noteId) {
+    this.state.notes = this.state.notes.filter((item) => item.id !== noteId);
+    this.persist();
+    return { ok: true };
+  }
+
+  setConversationReferences(conversationId, referenceIds) {
+    const conversation = this.state.conversations.find((item) => item.id === conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    const ids = [...new Set((Array.isArray(referenceIds) ? referenceIds : []).map(String))]
+      .filter((id) => id !== conversationId && this.state.conversations.some((item) => item.id === id));
+    conversation.referenceConversationIds = ids.slice(0, 20);
+    conversation.updatedAt = now();
+    this.persist();
+    return { ok: true };
+  }
+
+  addBookmark(input = {}) {
+    let url;
+    try { url = new URL(String(input.url || '')); } catch { throw new Error('A valid bookmark URL is required.'); }
+    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only web URLs can be bookmarked.');
+    const normalized = url.href;
+    const existing = this.state.bookmarks.find((item) => item.url === normalized);
+    if (existing) return { bookmarkId: existing.id, created: false };
+    const bookmark = {
+      id: crypto.randomUUID(),
+      name: cleanText(input.name, 160) || url.hostname,
+      url: normalized,
+      createdAt: now(),
+    };
+    this.state.bookmarks.push(bookmark);
+    this.persist();
+    return { bookmarkId: bookmark.id, created: true };
+  }
+
+  deleteBookmark(bookmarkId) {
+    this.state.bookmarks = this.state.bookmarks.filter((item) => item.id !== bookmarkId);
+    this.persist();
+    return { ok: true };
+  }
+
+  recordBrowserVisit(input = {}) {
+    let url;
+    try { url = new URL(String(input.url || '')); } catch { return { ok: false }; }
+    if (!['http:', 'https:'].includes(url.protocol)) return { ok: false };
+    const visit = {
+      id: crypto.randomUUID(),
+      url: url.href,
+      title: cleanText(input.title, 200) || url.hostname,
+      visitedAt: now(),
+    };
+    this.state.browserHistory.unshift(visit);
+    this.state.browserHistory = this.state.browserHistory.slice(0, 1000);
+    this.persist();
+    return { ok: true };
+  }
+
+  updateWorkspaceSettings(patch = {}) {
+    const next = { ...this.state.settings };
+    for (const key of ['autoArchiveDays', 'autoDeleteDays']) {
+      if (patch[key] !== undefined) {
+        const value = Math.max(0, Math.min(3650, Number(patch[key]) || 0));
+        next[key] = value;
+      }
+    }
+    this.state.settings = next;
+    this.persist();
+    return { ok: true };
+  }
+
+  getConversationExport(conversationId, responseIds = null) {
+    const conversation = this.state.conversations.find((item) => item.id === conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    const allowed = Array.isArray(responseIds) && responseIds.length ? new Set(responseIds.map(String)) : null;
+    return {
+      ...conversation,
+      responses: conversation.responses
+        .filter((response) => !allowed || allowed.has(response.id))
+        .map((response) => ({
+          ...response,
+          nodes: (response.nodes || []).filter((node) => !node.deletedAt),
+        })),
+    };
   }
 
   capture(input) {
@@ -131,11 +499,17 @@ class LocalStore {
         createdAt: now(),
         updatedAt: now(),
         responses: [],
+        folderId: null,
+        pinned: false,
+        archivedAt: null,
+        temporary: false,
+        referenceConversationIds: [],
       };
       this.state.conversations.push(conversation);
     } else {
       conversation.title = title || conversation.title;
       conversation.provider = provider;
+      if (!Array.isArray(conversation.referenceConversationIds)) conversation.referenceConversationIds = [];
     }
 
     const sourceMessageId = cleanText(input.sourceMessageId, 200) || null;
@@ -161,6 +535,7 @@ class LocalStore {
       sourceMessageId,
       fingerprint: contentFingerprint,
       contentFormat: 'markdown',
+      pinned: false,
       originalContent,
       capturedAt,
       nodes: nodeSpecs.map((spec, index) => ({
@@ -256,6 +631,18 @@ class LocalStore {
     throw new Error('Response not found.');
   }
 
+  setResponsePinned(responseId, pinned) {
+    for (const conversation of this.state.conversations) {
+      const response = conversation.responses.find((item) => item.id === responseId);
+      if (!response) continue;
+      response.pinned = Boolean(pinned);
+      conversation.updatedAt = now();
+      this.persist();
+      return { ok: true };
+    }
+    throw new Error('Response not found.');
+  }
+
   deleteNode(nodeId) {
     const { conversation, response } = this.findNode(nodeId);
     const allNodes = response.nodes || [];
@@ -282,12 +669,12 @@ class LocalStore {
     return { ok: true };
   }
 
-  buildContext(conversation) {
+  buildContext(conversation, visited = new Set()) {
+    if (visited.has(conversation.id)) return '';
+    visited.add(conversation.id);
     const allNodes = flattenNodes(conversation)
       .filter((node) => !node.deletedAt)
       .sort((a, b) => (a.sequence ?? a.position) - (b.sequence ?? b.position));
-    if (!allNodes.some((node) => node.includeInModelContext && node.content.trim())) return '';
-
     const childrenByParent = new Map();
     for (const node of allNodes) {
       const key = node.parentId || 'root';
@@ -318,12 +705,54 @@ class LocalStore {
     };
     visit(null, 0);
 
+    const sections = [];
+    if (lines.length) sections.push(`Source: ${conversation.provider} — ${conversation.title}\n${lines.join('\n')}`);
+    for (const referenceId of conversation.referenceConversationIds || []) {
+      if (referenceId === conversation.id) continue;
+      const reference = this.state.conversations.find((item) => item.id === referenceId);
+      if (!reference) continue;
+      const referenceContext = this.buildContext(reference, new Set(visited));
+      if (referenceContext) sections.push(referenceContext.slice('[WillAI-C shared context]'.length, -'[End WillAI-C shared context]'.length).trim());
+    }
+
+    if (!sections.length) return '';
     return [
       '[WillAI-C shared context]',
-      `Source: ${conversation.provider} — ${conversation.title}`,
-      ...lines,
+      ...sections,
       '[End WillAI-C shared context]',
     ].join('\n\n');
+  }
+
+  exportConversationContent(conversationId, format, responseIds = null) {
+    const conversation = this.getConversationExport(conversationId, responseIds);
+    const responses = conversation.responses;
+    if (format === 'json') return JSON.stringify(conversation, null, 2);
+    if (format === 'txt') {
+      return responses.map((response, index) =>
+        'Response ' + (index + 1) + ' — ' + new Date(response.capturedAt).toLocaleString() + '\n\n'
+        + response.originalContent,
+      ).join('\n\n' + '='.repeat(72) + '\n\n');
+    }
+    if (format === 'html') {
+      const escape = (value) => String(value).replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      })[char]);
+      const markdown = new (require('markdown-it'))({ html: false, linkify: true });
+      const body = responses.map((response, index) =>
+        '<section><h2>Response ' + (index + 1) + '</h2><p class="meta">' + escape(response.capturedAt) + '</p>'
+        + markdown.render(response.originalContent) + '</section>',
+      ).join('\n');
+      return '<!doctype html><html><head><meta charset="utf-8"><title>' + escape(conversation.title)
+        + '</title><style>body{font:16px/1.65 system-ui;max-width:900px;margin:40px auto;padding:0 24px;color:#20252b}h1,h2{line-height:1.25}section{border-top:1px solid #ddd;padding:24px 0}.meta{color:#68727e;font-size:12px}pre{overflow:auto;background:#f3f5f7;padding:16px}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px 10px}</style></head><body>'
+        + '<h1>' + escape(conversation.title) + '</h1><p>' + escape(conversation.provider) + ' · '
+        + escape(conversation.sourceUrl) + '</p>' + body + '</body></html>';
+    }
+    const heading = '# ' + conversation.title + '\n\nProvider: ' + conversation.provider
+      + '\nSource: ' + conversation.sourceUrl + '\n\n';
+    const body = responses.map((response, index) =>
+      '## Response ' + (index + 1) + '\n\nCaptured: ' + response.capturedAt + '\n\n' + response.originalContent,
+    ).join('\n\n---\n\n');
+    return heading + body + '\n';
   }
 
   getContextForSource(sourceUrl) {

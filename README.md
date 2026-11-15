@@ -6,6 +6,10 @@ WillAI-C uses the Chromium engine bundled with Electron. It does not launch or w
 
 **WillAI-E Extension is a separate WillAI-family product for Chrome and Firefox.** It is not a dependency of WillAI-C and is not included in this repository.
 
+## Version 0.2.0 — local workspace expansion
+
+The 0.2.0 test release adds local folders and subfolders, conversation pin/archive/bulk delete, a Prompt Manager with variables and JSON import/export, a manual prompt queue, global and chat notes, reference conversations with explicit shared-context boundaries, browser bookmarks/history, and conversation exports to Markdown, TXT, HTML, JSON, and PDF. See the feature register in docs/PRODUCT_SCOPE.md for the exact implementation boundary and remaining features.
+
 ## Current workspace-centered foundation
 
 - A workspace-first application shell with conversation navigation and a central work canvas.
@@ -61,11 +65,11 @@ npm run dist
 
 ## Product scope
 
-The complete supplied feature list—including folders, conversation tree maps, minimaps, highlights, global search, prompt management, prompt chains, audio/voice, notes, reference conversations, image gallery, GPT Store discovery, Showcase, sync, exports, and every stated Pro capability—is recorded in [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md).
+The complete supplied feature list—including delivered features and planned capabilities such as conversation tree maps, minimaps, highlights, global search, prompt automation, audio/voice, image gallery, GPT Store discovery, Showcase, sync, and Pro entitlements—is recorded in [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md).
 
 The architectural direction and module boundaries are recorded in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-This is an early workspace-centered foundation, not the finished feature-complete product. Provider capture still requires manual compatibility testing against current logged-in provider pages. Automated build success does not establish that live provider capture works correctly on a user's Windows machine.
+This is an early workspace-centered application, not the finished feature-complete product. Provider capture still requires manual compatibility testing against current logged-in provider pages. Automated build success does not establish that live provider capture works correctly on a user's Windows machine.
 
 ## Privacy and security
 

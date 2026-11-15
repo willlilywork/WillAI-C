@@ -7,10 +7,12 @@ const SESSION_PARTITION = 'persist:willai-c-browser';
 const ALLOWED_PERMISSIONS = new Set(['media', 'geolocation', 'notifications', 'clipboard-read']);
 
 class BrowserController {
-  constructor({ window, onState, onCapture }) {
+  constructor({ window, onState, onCapture, onVisit }) {
     this.window = window;
     this.onState = onState || (() => {});
     this.onCapture = onCapture || (() => {});
+    this.onVisit = onVisit || (() => {});
+    this.lastVisitByTab = new Map();
     this.tabs = new Map();
     this.activeTabId = null;
     this.contentBounds = { x: 0, y: 0, width: 0, height: 0 };
@@ -75,6 +77,14 @@ class BrowserController {
         else item.setSavePath(filePath);
       }).catch(() => item.cancel());
     });
+  }
+
+  recordVisit(tab, contents) {
+    const url = contents.getURL();
+    if (!isWebUrl(url)) return;
+    if (this.lastVisitByTab.get(tab.id) === url) return;
+    this.lastVisitByTab.set(tab.id, url);
+    this.onVisit({ url, title: contents.getTitle() || tab.title || url });
   }
 
   emitState() {
@@ -176,6 +186,7 @@ class BrowserController {
       tab.isLoading = false;
       tab.url = contents.getURL();
       tab.title = contents.getTitle() || tab.title;
+      this.recordVisit(tab, contents);
       this.emitState();
     });
     contents.on('page-title-updated', (_event, title) => {
@@ -192,6 +203,7 @@ class BrowserController {
     });
     contents.on('did-navigate-in-page', (_event, targetUrl) => {
       tab.url = targetUrl;
+      this.recordVisit(tab, contents);
       this.emitState();
     });
     contents.on('render-process-gone', () => {
@@ -201,6 +213,7 @@ class BrowserController {
     });
     contents.on('destroyed', () => {
       this.tabs.delete(id);
+      this.lastVisitByTab.delete(id);
       if (this.activeTabId === id) this.activeTabId = this.tabs.keys().next().value || null;
       this.applyBounds();
       this.emitState();
@@ -264,6 +277,13 @@ class BrowserController {
     const tab = this.getActiveTab();
     if (!tab || !context) return { ok: false, error: 'No active page or no shared context.' };
     tab.view.webContents.send('willai:insert-context', String(context));
+    return { ok: true };
+  }
+
+  insertPrompt(prompt) {
+    const tab = this.getActiveTab();
+    if (!tab || !prompt) return { ok: false, error: 'No active page or no prompt text.' };
+    tab.view.webContents.send('willai:insert-prompt', String(prompt));
     return { ok: true };
   }
 
