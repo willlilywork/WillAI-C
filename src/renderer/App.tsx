@@ -65,6 +65,9 @@ function App() {
   const [bulkSelection, setBulkSelection] = useState<string[]>([]);
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
+  const [contextPanelOpen, setContextPanelOpen] = useState(false);
+  const [contextPanelTab, setContextPanelTab] = useState<'outline' | 'context'>('context');
+  const [contextPanelWidth, setContextPanelWidth] = useState(340);
   const hostRef = useRef<HTMLDivElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
 
@@ -306,10 +309,26 @@ function App() {
     if (view === 'home') { setFolderFilter(null); setShowArchived(false); }
   }
 
+  async function toggleNodeContext(nodeId: string, enabled: boolean) {
+    try {
+      const result = await window.willai.setNodeContext(nodeId, enabled);
+      if (!result.ok) { setNotice('Could not update Model Context selection.'); return; }
+      await refreshSnapshot();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not update Model Context selection.');
+    }
+  }
+
   async function insertContext() {
     if (!activeConversation) return;
+    if (!activeTab?.provider) { setNotice('Open a supported AI provider in Browser before inserting Model Context.'); return; }
     const result = await window.willai.insertContext(activeConversation.id);
-    if (!result.ok) setNotice(result.error || 'Could not insert shared context.');
+    if (!result.ok) {
+      setNotice(result.error || 'Could not insert shared context.');
+      return;
+    }
+    setWorkspaceView('browser');
+    setBrowserOpen(true);
   }
 
   async function createFolder(parentId: string | null = null) {
@@ -363,13 +382,14 @@ function App() {
         <div className="header-divider" />
         <div className="header-location"><span className="header-product">WORKSPACE</span><span className="header-caption">{pageTitle}</span></div>
         <div className="header-actions">
+          {workspaceView !== 'browser' && <button type="button" className={'header-secondary' + (contextPanelOpen ? ' active' : '')} onClick={() => setContextPanelOpen((value) => !value)} disabled={!activeConversation} title="Toggle Context Panel">{contextPanelOpen ? 'Hide context' : 'Context'}</button>}
           <button type="button" className="header-secondary" onClick={() => navigateTo('browser')}>Open browser</button>
           <button type="button" className="header-primary" onClick={() => navigateTo('newchat')}>＋ New conversation</button>
         </div>
       </header>
       {notice && <button className="workspace-notice" type="button" onClick={() => setNotice('')} title="Dismiss notification"><span>{notice}</span><b>×</b></button>}
 
-      <div className="workspace-layout" style={{ '--sidebar-width': panelSizes.sidebar + 'px' } as CSSProperties}>
+      <div className={'workspace-layout' + (contextPanelOpen && workspaceView !== 'browser' ? ' has-context-panel' : '')} style={{ '--sidebar-width': panelSizes.sidebar + 'px', '--context-width': contextPanelWidth + 'px' } as CSSProperties}>
         <nav className="global-rail" aria-label="Primary navigation">
           <button type="button" className={'rail-item rail-create' + (workspaceView === 'newchat' ? ' active' : '')} onClick={() => navigateTo('newchat')} title="New Conversation" aria-label="New Conversation"><span className="rail-icon">＋</span><span className="rail-label">New</span></button>
           <div className="rail-divider" />
@@ -517,10 +537,136 @@ function App() {
           )}
           {loading && <div className="workspace-loading">Initialising your workspace…</div>}
         </main>
+        {contextPanelOpen && workspaceView !== 'browser' && (
+          <>
+            <ResizeHandle label="Resize Context Panel" value={contextPanelWidth} min={280} max={480} reverse onChange={setContextPanelWidth} />
+            <aside className="context-panel" aria-label="Context Panel">
+              <ContextPanel conversation={activeConversation} activeProvider={activeTab?.provider || null}
+                selectedTab={contextPanelTab} onSelectTab={setContextPanelTab}
+                onToggleNode={toggleNodeContext} onInsertContext={insertContext}
+                onClose={() => setContextPanelOpen(false)} />
+            </aside>
+          </>
+        )}
       </div>
     </div>
   );
 
+}
+
+function ContextPanel({
+  conversation,
+  activeProvider,
+  selectedTab,
+  onSelectTab,
+  onToggleNode,
+  onInsertContext,
+  onClose,
+}: {
+  conversation: Conversation | null;
+  activeProvider: Provider | null;
+  selectedTab: 'outline' | 'context';
+  onSelectTab: (tab: 'outline' | 'context') => void;
+  onToggleNode: (nodeId: string, enabled: boolean) => void;
+  onInsertContext: () => void;
+  onClose: () => void;
+}) {
+  const nodes = conversation?.responses.flatMap((response) => response.nodes.filter((node) => !node.deletedAt)) ?? [];
+  const includedNodes = nodes.filter((node) => node.includeInModelContext);
+  const privateNodes = nodes.filter((node) => !node.includeInModelContext);
+
+  return (
+    <div className="context-panel-inner">
+      <header className="context-panel-header">
+        <div><span className="section-eyebrow">INSPECTOR</span><h2>Context Panel</h2></div>
+        <button type="button" className="context-panel-close" onClick={onClose} title="Close Context Panel">×</button>
+      </header>
+      <div className="context-panel-tabs" role="tablist" aria-label="Context panel views">
+        <button type="button" role="tab" aria-selected={selectedTab === 'outline'} className={selectedTab === 'outline' ? 'active' : ''} onClick={() => onSelectTab('outline')}>Outline</button>
+        <button type="button" role="tab" aria-selected={selectedTab === 'context'} className={selectedTab === 'context' ? 'active' : ''} onClick={() => onSelectTab('context')}>Model Context</button>
+      </div>
+      {!conversation ? (
+        <div className="context-panel-empty"><strong>No conversation selected</strong><p>Open a saved conversation in Work to inspect its response nodes and Model Context.</p></div>
+      ) : selectedTab === 'outline' ? (
+        <div className="context-panel-scroll">
+          <div className="context-panel-object-title">{conversation.title}</div>
+          <div className="context-panel-meta">{conversation.responses.length} original responses · {nodes.length} working nodes</div>
+          {conversation.responses.map((response, index) => (
+            <section className="context-outline-response" key={response.id}>
+              <header><span>Response {index + 1}</span><small>{new Date(response.capturedAt).toLocaleString()}</small></header>
+              {response.nodes.length ? (
+                <ContextNodeRows nodes={response.nodes.filter((node) => !node.deletedAt)} onToggleNode={onToggleNode} />
+              ) : <div className="context-panel-empty-inline">No working nodes in this response.</div>}
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className="context-panel-scroll">
+          <div className="context-context-summary">
+            <div><strong>{includedNodes.length}</strong><span>Included</span></div>
+            <div><strong>{privateNodes.length}</strong><span>Private</span></div>
+          </div>
+          <p className="context-privacy-note">Only nodes marked as Included are available to the provider. New and edited nodes remain private until you select them.</p>
+          <div className="context-included-list">
+            <div className="context-section-heading">Included material</div>
+            {includedNodes.length ? includedNodes.map((node) => (
+              <div className="context-included-row" key={node.id}>
+                <span className="context-included-dot" />
+                <span>{node.content.replace(/\s+/g, ' ').slice(0, 170) || 'Empty node'}</span>
+                <button type="button" title="Remove from Model Context" onClick={() => onToggleNode(node.id, false)}>×</button>
+              </div>
+            )) : <div className="context-panel-empty-inline">Nothing is included yet. Select nodes in Outline to make them available.</div>}
+          </div>
+          <div className="context-preview-block">
+            <div className="context-section-heading">Context preview</div>
+            <pre>{conversation.sharedContextPreview || 'The Model Context preview is empty.'}</pre>
+          </div>
+          <button type="button" className="context-insert-action" disabled={!conversation.sharedContextPreview || !activeProvider}
+            onClick={onInsertContext}>
+            {activeProvider ? 'Insert into ' + (activeProvider === 'chatgpt' ? 'ChatGPT' : activeProvider === 'claude' ? 'Claude' : 'DeepSeek') : 'Open a provider to insert'}
+          </button>
+          <div className="context-panel-footnote">Insertion does not submit the prompt. Review and send it on the provider page.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContextNodeRows({
+  nodes,
+  onToggleNode,
+  parentId = null,
+  depth = 0,
+  ancestors = new Set<string>(),
+}: {
+  nodes: WorkingNode[];
+  onToggleNode: (nodeId: string, enabled: boolean) => void;
+  parentId?: string | null;
+  depth?: number;
+  ancestors?: Set<string>;
+}) {
+  const children = nodes.filter((node) => node.parentId === parentId && !ancestors.has(node.id))
+    .sort((a, b) => (a.sequence ?? a.position) - (b.sequence ?? b.position));
+  return (
+    <>
+      {children.map((node) => {
+        const nextAncestors = new Set(ancestors);
+        nextAncestors.add(node.id);
+        return (
+          <div className="context-outline-node" key={node.id} style={{ paddingLeft: depth * 14 }}>
+            <div className="context-outline-node-row">
+              <span className="context-node-kind">{node.nodeType === 'heading' ? 'H' + (node.headingLevel || 1) : node.nodeType === 'list-item' ? '•' : '¶'}</span>
+              <span className="context-node-content">{node.content.replace(/\s+/g, ' ').slice(0, 140) || 'Empty node'}</span>
+              <label title={node.includeInModelContext ? 'Included in Model Context' : 'Private node'}>
+                <input type="checkbox" checked={node.includeInModelContext} onChange={(event) => onToggleNode(node.id, event.target.checked)} />
+              </label>
+            </div>
+            <ContextNodeRows nodes={nodes} onToggleNode={onToggleNode} parentId={node.id} depth={depth + 1} ancestors={nextAncestors} />
+          </div>
+        );
+      })}
+    </>
+  );
 }
 
 function WorkLibrary({ conversations, onOpenConversation }: { conversations: Conversation[]; onOpenConversation: (conversation: Conversation) => void }) {
