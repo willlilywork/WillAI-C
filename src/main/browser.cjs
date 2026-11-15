@@ -13,7 +13,7 @@ class BrowserController {
     this.onCapture = onCapture || (() => {});
     this.tabs = new Map();
     this.activeTabId = null;
-    this.contentBounds = { x: 230, y: 98, width: 800, height: 600 };
+    this.contentBounds = { x: 0, y: 0, width: 0, height: 0 };
     this.browserSession = session.fromPartition(SESSION_PARTITION);
     this.permissionGrants = new Set();
     this.installPermissionHandlers();
@@ -124,7 +124,7 @@ class BrowserController {
       width: Math.max(0, Math.round(Number(bounds.width) || 0)),
       height: Math.max(0, Math.round(Number(bounds.height) || 0)),
     };
-    if (next.width > 0 && next.height > 0) this.contentBounds = next;
+    this.contentBounds = next;
     this.applyBounds();
   }
 
