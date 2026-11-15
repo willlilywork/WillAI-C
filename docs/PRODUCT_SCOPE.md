@@ -31,6 +31,7 @@ WillAI-C does not require provider API keys for its browser-based AI integration
 
 ### 2. Conversation and workspace organization
 
+- **More Sidebar Space:** resize the sidebar and bottom section to make more of the conversation list visible.
 - **Folders and Subfolders:** organize chats with colors, images, drag-and-drop, and pinned favorites.
 - **Conversation Tree Map:** visualize multi-branch conversations and export as PNG.
 - **Minimap:** show a reduced overview of the entire conversation on the edge of the screen.
