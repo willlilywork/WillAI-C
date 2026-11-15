@@ -172,7 +172,7 @@ test('a growing provider response updates its existing Original Response and Wor
       sourceUrl: 'https://chatgpt.com/c/growing-answer',
       title: 'Growing answer',
       sourceMessageId: 'assistant-message-growing',
-      text: '# Answer\\n\\nThe first part.',
+      text: '# Answer\n\nThe first part.',
     });
     const original = store.getSnapshot().conversations[0].responses[0];
     const firstHeadingId = original.nodes.find((node) => node.nodeType === 'heading').id;
@@ -182,7 +182,7 @@ test('a growing provider response updates its existing Original Response and Wor
       sourceUrl: 'https://chatgpt.com/c/growing-answer',
       title: 'Growing answer',
       sourceMessageId: 'assistant-message-growing',
-      text: '# Answer\\n\\nThe completed first part.\\n\\n## Details\\n\\nA second paragraph.',
+      text: '# Answer\n\nThe completed first part.\n\n## Details\n\nA second paragraph.',
     });
 
     const response = store.getSnapshot().conversations[0].responses[0];
@@ -208,7 +208,7 @@ test('response revisions preserve a manually edited Working Node', () => {
       sourceUrl: 'https://chatgpt.com/c/edited-growing-answer',
       title: 'Edited answer',
       sourceMessageId: 'assistant-message-edited',
-      text: '# Answer\\n\\nOriginal wording.',
+      text: '# Answer\n\nOriginal wording.',
     });
     const response = store.getSnapshot().conversations[0].responses[0];
     const paragraph = response.nodes.find((node) => node.nodeType === 'paragraph');
@@ -219,7 +219,7 @@ test('response revisions preserve a manually edited Working Node', () => {
       sourceUrl: 'https://chatgpt.com/c/edited-growing-answer',
       title: 'Edited answer',
       sourceMessageId: 'assistant-message-edited',
-      text: '# Answer\\n\\nFinal source wording.\\n\\nNew paragraph.',
+      text: '# Answer\n\nFinal source wording.\n\nNew paragraph.',
     });
 
     const revised = store.getSnapshot().conversations[0].responses[0];
@@ -256,7 +256,7 @@ test('capturing a Markdown answer creates typed and nested Working Nodes', () =>
       '| Name | Value |',
       '| --- | --- |',
       '| Alpha | One |',
-    ].join('\\n');
+    ].join('\n');
     store.capture({
       provider: 'chatgpt',
       sourceUrl: 'https://chatgpt.com/c/markdown-to-nodes',

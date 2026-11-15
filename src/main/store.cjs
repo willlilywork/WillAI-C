@@ -1020,7 +1020,7 @@ class LocalStore {
     if (duplicate) {
       const existingBySequence = new Map(
         (duplicate.nodes || [])
-          .filter((node) => !node.deletedAt)
+          .filter((node) => !node.deletedAt && node.provenance !== 'human-created')
           .map((node) => [Number(node.sequence), node]),
       );
       const nodeIds = nodeSpecs.map((_, index) => existingBySequence.get(index)?.id || crypto.randomUUID());
