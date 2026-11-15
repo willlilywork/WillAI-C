@@ -91,6 +91,7 @@ class BrowserController {
       canGoForward: tab.view.webContents.navigationHistory.canGoForward(),
       favicon: tab.favicon || '',
       provider: providerFromUrl(tab.url),
+      captureStatus: tab.captureStatus || null,
     }));
     return { tabs, activeTabId: this.activeTabId };
   }
@@ -149,6 +150,7 @@ class BrowserController {
       url: '',
       favicon: '',
       isLoading: true,
+      captureStatus: null,
       createdAt: new Date().toISOString(),
     };
     this.tabs.set(id, tab);
@@ -263,6 +265,67 @@ class BrowserController {
     if (!tab || !context) return { ok: false, error: 'No active page or no shared context.' };
     tab.view.webContents.send('willai:insert-context', String(context));
     return { ok: true };
+  }
+
+  handleProviderStatus(webContents, payload) {
+    const tab = this.getTabByWebContents(webContents);
+    if (!tab) return false;
+    let pageUrl;
+    try { pageUrl = new URL(webContents.getURL()); } catch { return false; }
+    const provider = providerFromUrl(pageUrl.href);
+    if (pageUrl.protocol !== 'https:' || !provider || payload?.provider !== provider) return false;
+
+    const allowedStates = new Set([
+      'ready',
+      'scanning',
+      'no-message-elements',
+      'message-elements-found',
+      'response-sent',
+      'capture-error',
+    ]);
+    const state = allowedStates.has(payload.state) ? payload.state : 'ready';
+    tab.captureStatus = {
+      provider,
+      state,
+      candidateCount: Math.max(0, Math.min(10000, Number(payload.candidateCount) || 0)),
+      capturedCount: tab.captureStatus?.capturedCount || 0,
+      message: String(payload.message || '').slice(0, 240),
+      updatedAt: new Date().toISOString(),
+    };
+    this.emitState();
+    return true;
+  }
+
+  markCaptured(webContents) {
+    const tab = this.getTabByWebContents(webContents);
+    if (!tab) return;
+    const provider = providerFromUrl(tab.url);
+    if (!provider) return;
+    tab.captureStatus = {
+      provider,
+      state: 'response-sent',
+      candidateCount: tab.captureStatus?.candidateCount || 0,
+      capturedCount: (tab.captureStatus?.capturedCount || 0) + 1,
+      message: 'Assistant response saved to the WillAI workspace.',
+      updatedAt: new Date().toISOString(),
+    };
+    this.emitState();
+  }
+
+  markCaptureError(webContents, error) {
+    const tab = this.getTabByWebContents(webContents);
+    if (!tab) return;
+    const provider = providerFromUrl(tab.url);
+    if (!provider) return;
+    tab.captureStatus = {
+      provider,
+      state: 'capture-error',
+      candidateCount: tab.captureStatus?.candidateCount || 0,
+      capturedCount: tab.captureStatus?.capturedCount || 0,
+      message: String(error || 'Response could not be saved.').slice(0, 240),
+      updatedAt: new Date().toISOString(),
+    };
+    this.emitState();
   }
 
   handleProviderCapture(webContents, payload) {
