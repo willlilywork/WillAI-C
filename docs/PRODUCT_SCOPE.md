@@ -44,6 +44,11 @@ WillAI-C does not require provider API keys for its browser-based AI integration
 - **Global Search:** search across chats, prompts, notes, and highlights, with result highlighting.
 - **Temporary Mode:** return to temporary chats and continue them at any time.
 - **Auto Sync:** synchronize settings, folders, prompts, and chat history across devices.
+- **Right-side Folder Panel:** display the same folder and subfolder structure in a right-side panel, including when ChatGPT's native sidebar is closed or the browser window is too narrow to show it.
+- **Message Navigator Filters:** filter the navigator to show only the user's messages or only ChatGPT's messages, and group messages by day.
+- **Long-chat Performance Controls:** let the user choose how many messages load at a time, keep only the latest messages loaded to reduce browser lag, and automatically load older messages as the user scrolls.
+- **One-click Full Conversation Loading:** provide an action that loads and renders every message in a long conversation immediately, without reloading the page.
+- **Full-chat Find (Ctrl+F / Cmd+F):** search across the entire conversation, including messages not currently rendered or visible on screen, and jump directly to each matching result.
 
 ### 3. Prompt management and reuse
 
@@ -55,6 +60,7 @@ WillAI-C does not require provider API keys for its browser-based AI integration
 - **Prompt History:** save and browse every prompt privately on the local computer.
 - **Prompt Auto Complete:** open a prompt menu by typing `/` above the input box.
 - **Quick Access to Previous Prompts:** navigate prompt history from the input box with the Up/Down arrow keys.
+- **Prompt Navigator:** list every prompt in a conversation in a sidebar, allow filtering and searching that list, and jump to any earlier prompt with one click, including in very long chats.
 - **Favorite Prompts:** mark prompts from history as favorites for reuse.
 - **Prompt Search:** search local prompt history and thousands of public community prompts.
 - **Public Prompts:** share, vote, report, sort, and filter community prompts by category and language.
@@ -83,6 +89,11 @@ WillAI-C does not require provider API keys for its browser-based AI integration
 - **Auto Summarize:** summarize long text using Auto Splitter to make it easier to question.
 - **Send Screenshot with Right Click:** send a screenshot from any page to ChatGPT quickly.
 
+### ChatGPT page integration and appearance
+
+- **Dark Mode Support for the New ChatGPT Interface:** support dark mode in ChatGPT's newer interface, including WillAI-C's integrated browser-side controls and overlays.
+- **Embedded Settings Panel:** provide a settings panel directly within the ChatGPT page, with enough room to keep the current conversation visible for preview while the user reviews and changes every available option.
+
 ### 5. Export, print, audio, and voice
 
 - **Export Conversations:** export in PDF, TXT, JSON, Markdown, and HTML.
@@ -93,6 +104,7 @@ WillAI-C does not require provider API keys for its browser-based AI integration
 - **Download Audio:** download ChatGPT response audio and full-conversation audio as MP3.
 - **Side-by-Side Voice Mode:** use ChatGPT Advanced Voice while viewing the conversation.
 - **Text-to-Speech and Speech-to-Text:** provide multilingual text and voice input/output.
+- **Voice Mode Transcript Integration:** capture and display the actual words spoken in Voice Mode messages in the message navigator and search index, rather than showing a generic “Untitled” label.
 
 ### 6. Notes and knowledge context
 
