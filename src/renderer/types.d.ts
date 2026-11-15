@@ -107,6 +107,16 @@ declare global {
     createdAt: string;
   }
 
+  interface WorkspaceSearchResult {
+    id: string;
+    kind: 'Conversation' | 'Original Response' | 'Working Node' | 'Prompt' | 'Prompt History' | 'Note' | 'Bookmark' | 'Browser History';
+    title: string;
+    subtitle: string;
+    excerpt: string;
+    conversationId?: string;
+    url?: string;
+  }
+
   interface BrowserHistoryItem {
     id: string;
     url: string;
@@ -159,6 +169,7 @@ declare global {
   interface Window {
     willai: {
       getSnapshot(): Promise<WillAISnapshot>;
+      searchWorkspace(query: string, limit?: number): Promise<WorkspaceSearchResult[]>;
       getBrowserState(): Promise<BrowserState>;
       createTab(url?: string): Promise<string>;
       activateTab(tabId: string): Promise<BrowserState>;

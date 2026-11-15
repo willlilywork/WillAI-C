@@ -38,6 +38,7 @@ test('folder hierarchy, conversation assignment, and folder deletion preserve co
     assert.equal(snapshot.conversations[0].folderId, parent.folderId);
     assert.equal(snapshot.folders.length, 1);
   } finally {
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -62,6 +63,7 @@ test('conversation pinning, archiving, response pinning, and bulk delete persist
     assert.equal(result.deleted, 2);
     assert.equal(store.getSnapshot().conversations.length, 0);
   } finally {
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -85,6 +87,7 @@ test('prompt variables expand, favourites update, and usage enters local history
     assert.equal(snapshot.prompts[0].usageCount, 1);
     assert.equal(snapshot.promptHistory[0].content, expanded.content);
   } finally {
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -104,6 +107,7 @@ test('prompt import and export round-trip prompt records', () => {
     assert.equal(exported.prompts.length, 2);
     assert.equal(exported.prompts[1].kind, 'chain');
   } finally {
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -120,6 +124,7 @@ test('global and conversation notes are stored independently', () => {
     assert.equal(snapshot.notes.filter((note) => !note.conversationId).length, 1);
     assert.equal(snapshot.notes.find((note) => note.conversationId)?.title, 'Chat note');
   } finally {
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -139,6 +144,7 @@ test('reference conversations contribute only explicitly shared nodes to context
     assert.match(referencingConversation.sharedContextPreview, /# Response/);
     assert.match(referencingConversation.sharedContextPreview, /Source: chatgpt — Conversation original/);
   } finally {
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -158,6 +164,7 @@ test('prompt queue, bookmarks, and browser history are local and validated', () 
     store.recordBrowserVisit({ title: 'OpenAI', url: 'https://openai.com/' });
     assert.equal(store.getSnapshot().browserHistory[0].title, 'OpenAI');
   } finally {
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -171,28 +178,41 @@ test('conversation exports are available as Markdown, text, JSON, and HTML', () 
     assert.equal(JSON.parse(store.exportConversationContent(captured.conversationId, 'json')).title, 'Conversation export');
     assert.match(store.exportConversationContent(captured.conversationId, 'html'), /<strong>bold<\/strong>/);
   } finally {
+    store.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 
-test('legacy local data is migrated without discarding conversations', () => {
+test('legacy JSON migrates to SQLite and remains unchanged as a backup', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'willai-c-migration-'));
+  let store;
+  let reopened;
   try {
     const filePath = path.join(directory, 'willai-c-data.json');
-    fs.writeFileSync(filePath, JSON.stringify({
+    const legacy = {
       schemaVersion: 1,
       bridgeToken: 'legacy-token',
-      conversations: [{ id: 'legacy', title: 'Legacy conversation', responses: [], updatedAt: new Date().toISOString() }],
-    }), 'utf8');
+      conversations: [{ id: 'legacy', title: 'Legacy conversation', provider: 'chatgpt',
+        sourceUrl: 'https://chatgpt.com/c/legacy', responses: [],
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
+    };
+    const legacyText = JSON.stringify(legacy);
+    fs.writeFileSync(filePath, legacyText, 'utf8');
 
-    const store = new LocalStore(directory);
-    const snapshot = store.getSnapshot();
-    assert.equal(snapshot.conversations[0].id, 'legacy');
-    assert.equal(snapshot.folders.length, 0);
-    const disk = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    assert.equal(disk.dataVersion, 2);
-    assert.equal(disk.bridgeToken, 'legacy-token');
+    store = new LocalStore(directory);
+    assert.equal(store.getSnapshot().conversations[0].id, 'legacy');
+    assert.equal(store.getBridgeInfo().token, 'legacy-token');
+    assert.ok(fs.existsSync(store.databasePath));
+    assert.ok(fs.existsSync(filePath + '.migrated-backup'));
+    assert.equal(fs.readFileSync(filePath, 'utf8'), legacyText);
+
+    store.close();
+    reopened = new LocalStore(directory);
+    assert.equal(reopened.getSnapshot().conversations[0].title, 'Legacy conversation');
+    assert.equal(reopened.getBridgeInfo().token, 'legacy-token');
   } finally {
+    reopened?.close();
+    store?.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });

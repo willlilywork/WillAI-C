@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const api = {
   getSnapshot: () => ipcRenderer.invoke('willai:get-snapshot'),
+  searchWorkspace: (query, limit) => ipcRenderer.invoke('willai:search-workspace', query, limit),
   getBrowserState: () => ipcRenderer.invoke('willai:get-browser-state'),
   createTab: (url) => ipcRenderer.invoke('willai:create-tab', url),
   activateTab: (tabId) => ipcRenderer.invoke('willai:activate-tab', tabId),

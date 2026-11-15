@@ -45,6 +45,9 @@ jobs:
           node --check src/main/provider-capture-preload.cjs
           node --check src/main/markdown-nodes.cjs
 
+      - name: Rebuild SQLite native module for Electron
+        run: npm run rebuild:electron
+
       - name: Package Windows installer
         run: npm run dist
         env:

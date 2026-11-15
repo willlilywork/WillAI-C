@@ -4,15 +4,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.join(__dirname, '..');
 
-test('Global Search covers conversations, original responses, working nodes, prompts, notes and browser records', () => {
+test('Global Search requests indexed results from the local workspace database', () => {
   const app = fs.readFileSync(path.join(root, 'src/renderer/App.tsx'), 'utf8');
-  for (const source of ['snapshot.conversations', 'response.originalContent', 'node.content', 'snapshot.prompts', 'snapshot.notes', 'snapshot.bookmarks', 'snapshot.browserHistory']) {
-    assert.ok(app.includes(source), 'Missing search domain: ' + source);
-  }
-  assert.match(app, /const globalSearchResults = useMemo/);
+  const preload = fs.readFileSync(path.join(root, 'src/main/preload.cjs'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'src/main/index.cjs'), 'utf8');
+  assert.match(app, /window\.willai\.searchWorkspace\(globalSearchQuery, 80\)/);
+  assert.match(preload, /searchWorkspace: \(query, limit\) => ipcRenderer\.invoke\('willai:search-workspace'/);
+  assert.match(main, /ipcMain\.handle\('willai:search-workspace'/);
 });
 
-test('Command palette opens from Ctrl+K and has implemented navigation commands', () => {
+test('Command palette opens from Ctrl/Cmd+K and has implemented navigation commands', () => {
   const app = fs.readFileSync(path.join(root, 'src/renderer/App.tsx'), 'utf8');
   assert.match(app, /event\.key\.toLowerCase\(\) === 'k'/);
   assert.match(app, /role="dialog"/);
@@ -25,11 +26,6 @@ test('Search results route to their owning workspace and URL results open in Bro
   const app = fs.readFileSync(path.join(root, 'src/renderer/App.tsx'), 'utf8');
   assert.match(app, /function activateSearchResult/);
   assert.match(app, /openBrowserUrl\(result\.url\)/);
-});
-
-test('Search snippets collapse whitespace and conversation notes open in Notes', () => {
-  const app = fs.readFileSync(path.join(root, 'src/renderer/App.tsx'), 'utf8');
-  assert.match(app, /replace\(\/\\s\+\/g, ' '\)/);
   const start = app.indexOf('function activateSearchResult');
   const end = app.indexOf('function runPaletteCommand', start);
   const body = app.slice(start, end);

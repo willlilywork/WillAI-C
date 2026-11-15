@@ -108,7 +108,7 @@ This distinction is mandatory across all provider adapters and future prompt fea
 
 ## 5. Local persistence and future data model
 
-The current capture and node foundation uses a versioned local JSON store. That is an implementation step, not the intended final storage engine.
+The local workspace now uses SQLite through a transactional repository in the Electron main process. Existing JSON workspace files are migrated on first startup and retained as a separate legacy backup after a successful import.
 
 The target local data model must include at least:
 - BrowserProfile, BrowserSettings, BrowserPermission, Bookmark, BrowserHistoryEntry, TabSession.
@@ -123,7 +123,7 @@ The target local data model must include at least:
 
 Use a local-first repository boundary so that local browsing, node editing, notes, prompt history, and core search do not require the WillAI cloud. Cloud services are introduced only for features that inherently need cross-device sync, public community discovery, share pages, subscriptions, or paid marketplace transactions.
 
-Before the feature set grows beyond the current single-user capture workflow, move the mutable application data from the JSON document to SQLite with explicit schema migrations, indexed search, transactions, and recoverable backups. Do not make React components depend on JSON file structure.
+SQLite is the source of truth for mutable local data. The schema separates folders, conversations, Original Responses, Working Nodes, prompts, notes, browser records, and queue items; foreign keys, indexes, WAL mode, and an FTS5 search index are maintained by the main-process store. Schema evolution uses SQLite's user_version, and the legacy JSON file is not overwritten during migration. React communicates through the IPC repository surface and does not access database files.
 
 ## 6. Product feature modules
 
