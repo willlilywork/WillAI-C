@@ -213,7 +213,7 @@ declare global {
       importPrompts(): Promise<{canceled: boolean; imported: number}>;
       copyText(text: string): Promise<{ok: boolean}>;
       onBrowserState(callback: (state: BrowserState) => void): () => void;
-      onCapture(callback: (payload: {created: boolean; conversationId: string; responseId: string}) => void): () => void;
+      onCapture(callback: (payload: {created: boolean; updated?: boolean; conversationId: string; responseId: string}) => void): () => void;
       onSnapshotChanged(callback: () => void): () => void;
       onCaptureError(callback: (result: {provider?: string; error: string}) => void): () => void;
       onContextInsertResult(callback: (result: {ok: boolean; error?: string}) => void): () => void;
