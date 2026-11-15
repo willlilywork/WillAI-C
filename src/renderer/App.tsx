@@ -445,6 +445,7 @@ function App() {
               onRefresh={refreshSnapshot}
               onInsertContext={insertContext}
               onBack={() => { setActiveConversationId(null); setWorkspaceView('overview'); }}
+              onOpenNotes={() => setWorkspaceView('notes')}
               onNotice={setNotice}
             />
           ) : (

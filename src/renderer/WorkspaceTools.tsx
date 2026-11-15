@@ -25,7 +25,7 @@ export default function WorkspaceTools({
   if (mode === 'notes') {
     return <NotesWorkspace snapshot={snapshot} activeConversation={activeConversation} onRefresh={onRefresh} />;
   }
-  return <BrowserLibrary snapshot={snapshot} activeTab={activeTab} onNotice={onNotice} />;
+  return <BrowserLibrary snapshot={snapshot} activeTab={activeTab} onNotice={onNotice} onRefresh={onRefresh} />;
 }
 
 function PromptManager({
