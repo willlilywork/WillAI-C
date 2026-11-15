@@ -2,9 +2,9 @@
 
 ## Product definition
 
-**WillAI-C is a Chromium-based browser with WillAI capabilities integrated into the browser itself.** AI websites and ordinary websites are opened and used inside WillAI-C tabs. The browser is the product's runtime and primary interface; it is not a companion panel attached to another browser.
+**WillAI-C is a workspace-centered desktop application built on an integrated Chromium browser engine.** Chromium is the runtime and web-content engine; it is not the application's shell or the dominant interface. The WillAI-C workspace is the central interface for conversations, Original Responses, Working Nodes, prompts, notes, search, and other work. Browser pages are integrated surfaces managed by the workspace and can be docked or focused without replacing it.
 
-WillAI-C does not require provider API keys for its browser-based AI integrations. It works with the user's existing signed-in web accounts. Its own response workspace turns provider responses into editable Working Nodes while preserving the Original Response and controlling what is included in later model context.
+WillAI-C does not require provider API keys for its browser-based AI integrations. It works with the user's existing signed-in web accounts. Provider responses must become visible, retrievable workspace objects while preserving the Original Response and controlling what is included in later model context.
 
 **WillAI-E Extension is a separate member of the WillAI product family.** It is the Chrome and Firefox extension that adds WillAI features on top of those browsers. It is not part of the WillAI-C application, and WillAI-C does not depend on an extension or a localhost extension bridge.
 
@@ -12,7 +12,9 @@ WillAI-C does not require provider API keys for its browser-based AI integration
 
 - Browser engine: the Chromium build bundled with Electron. This is a Chromium-based browser application, not a launcher for the separately installed Google Chrome executable.
 - Browser pages run in their own web contents and persistent browser session.
-- WillAI-C browser chrome, tabs, navigation, sidebars, workspace, storage, and feature controls are owned by the application.
+- The WillAI-C workspace is the primary application interface; browser tabs and navigation are integrated controls within it.
+- Browser WebContents must be bounded to the browser surface and must never cover the workspace navigation, central work canvas, or app controls.
+- Captured responses are first-class workspace records, not content shown only in a browser page or an optional secondary panel.
 - Provider-specific integration is internal to WillAI-C. Provider page integration must not grant a website access to Node.js or Electron APIs.
 - WillAI-C's local features work without a WillAI cloud account. Features explicitly requiring sync, public sharing, community voting, paid content, or storefronts need separate backend services.
 - No feature in this register should be represented as implemented merely because it appears in the product specification. Implementation status is tracked in the repository's issues and release plan.
@@ -26,7 +28,8 @@ WillAI-C does not require provider API keys for its browser-based AI integration
 - Persistent browser profile for website sign-ins, cookies, cache, and local site data.
 - Browser history, downloads, site permissions, and popup handling.
 - In-browser access to ChatGPT, Claude, DeepSeek, other AI providers, and ordinary websites.
-- Integrated WillAI workspace and browser-side response integration.
+- Workspace-centered interface with a managed Chromium browser dock.
+- Integrated response capture, diagnostics, and workspace-side response editing.
 - Internal provider adapters; no WillAI-C browser extension or extension-to-app HTTP bridge.
 
 ### 2. Conversation and workspace organization
