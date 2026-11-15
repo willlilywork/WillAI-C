@@ -30,6 +30,15 @@ try {
   await shot(page, '03-conversation-1440x900.png');
   await page.locator('[data-go="workbench"]').first().click();
   await shot(page, '04-workbench-working-1440x900.png');
+  const sourceText = 'The original response should remain immutable. It is the evidence of what the provider returned at a particular time, including its wording, formatting, and source context.';
+  const firstBlock = page.locator('.doc-block[data-block="idea"]');
+  await firstBlock.evaluate(el => { el.innerText = 'Edited working copy for the preservation test.'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  await page.locator('[data-mode="original"]').click();
+  assert.ok((await page.locator('.doc-block[data-block="idea"]').innerText()).includes(sourceText));
+  assert.ok(!(await page.locator('#document').innerText()).includes('Edited working copy for the preservation test.'));
+  await page.locator('[data-mode="working"]').click();
+  assert.ok((await page.locator('.doc-block[data-block="idea"]').innerText()).includes('Edited working copy for the preservation test.'));
+  await page.locator('.doc-block[data-block="idea"]').evaluate((el, text) => { el.innerText = text; el.dispatchEvent(new Event('input', { bubbles: true })); }, sourceText);
   await page.locator('[data-mode="original"]').click();
   await shot(page, '05-workbench-original-1440x900.png');
   await page.locator('[data-mode="working"]').click();
