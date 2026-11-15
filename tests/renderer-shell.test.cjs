@@ -10,7 +10,7 @@ test('WillAI-C starts in New Conversation with the browser hidden', () => {
   assert.match(app, /useState\(false\);/);
   assert.match(app, /setWorkspaceView<['"]newchat['"]|useState<['"]newchat['"]\s*\|/);
   assert.match(app, /<NewConversation/);
-  assert.match(app, /Open provider and insert prompt/);
+  assert.match(app, /Send request/);
 });
 
 test('Electron startup does not create a provider tab automatically', () => {
@@ -24,9 +24,8 @@ test('closing the last browser tab leaves the browser empty', () => {
   assert.doesNotMatch(browser, /if \(!this\.activeTabId\)\s*\{\s*this\.createTab\(['"]https:\/\/chatgpt\.com\//);
 });
 
-test('provider prompts are inserted only after the adapter reports readiness', () => {
+test('provider requests use the background submit bridge', () => {
   const app = fs.readFileSync(path.join(root, 'src/renderer/App.tsx'), 'utf8');
-  assert.match(app, /pendingPrompt\.dispatched/);
-  assert.match(app, /\['ready', 'no-message-elements', 'message-elements-found', 'response-sent'\]/);
-  assert.match(app, /window\.willai\.insertPrompt\(pending\.content\)/);
+  assert.match(app, /window\.willai\.sendPrompt\(provider, content\)/);
+  assert.match(app, /setBrowserBounds\(\{ x: 0, y: 0, width: 0, height: 0 \}\)/);
 });

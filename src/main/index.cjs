@@ -33,6 +33,10 @@ function registerRendererIpc() {
     assertTrustedRenderer(event);
     return browser?.getState() || { tabs: [], activeTabId: null };
   });
+  ipcMain.handle('willai:send-prompt', (event, provider, content) => {
+    assertTrustedRenderer(event);
+    return browser.sendPrompt(String(provider || ''), String(content || ''));
+  });
   ipcMain.handle('willai:create-tab', (event, url) => {
     assertTrustedRenderer(event);
     return browser.createTab(url || 'https://chatgpt.com/');
@@ -281,6 +285,10 @@ function registerRendererIpc() {
 
   ipcMain.on('willai:provider-status', (event, payload) => {
     browser?.handleProviderStatus(event.sender, payload || {});
+  });
+
+  ipcMain.on('willai:prompt-submit-result', (event, payload) => {
+    browser?.handlePromptSubmitResult(event.sender, payload || {});
   });
 
   ipcMain.on('willai:context-insert-result', (_event, result) => {
