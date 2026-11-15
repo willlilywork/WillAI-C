@@ -404,13 +404,13 @@ function renderInspector(){
 function contextPreview(){let selected=blocks.filter(b=>b.include);return selected.length?selected.map(b=>b.title+': '+b.text).join('\n\n'):'No blocks selected. Select items above to build the preview.'}
 function bindPage(){
  $$('[data-go]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.go)));
- $('[data-open-conv]').forEach(b=>b.addEventListener('click',()=>{state.newConversationPrompt='';state.dest='conversation';render()}));
+ $$('[data-open-conv]').forEach(b=>b.addEventListener('click',()=>{state.newConversationPrompt='';state.dest='conversation';render()}));
  $$('[data-open-inspector]').forEach(b=>b.addEventListener('click',()=>openInspector(b.dataset.openInspector)));
  $$('[data-mode]').forEach(b=>b.addEventListener('click',()=>{state.wbMode=b.dataset.mode;render()}));
  $$('[data-block]').forEach(b=>{b.addEventListener('click',e=>{if(e.target.closest('a'))return;state.selectedBlock=b.dataset.block;$$('[data-block]').forEach(x=>x.classList.toggle('selected',x.dataset.block===state.selectedBlock));updateBlockInspector();});b.addEventListener('input',()=>{let obj=blocks.find(x=>x.id===b.dataset.block);if(obj)obj.text=b.innerText;});});
  $$('[data-action]').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.action==='context'){let x=blocks.find(x=>x.id===state.selectedBlock);if(x)x.include=!x.include;openInspector('context')}else if(b.dataset.action==='note'){state.dest='notes';render();notify('Create a note from the selected block.')}else{children.push({id:'child'+(children.length+1),parent:state.selectedBlock,label:b.dataset.action==='explain'?'Explanation':'Refinement',text:(b.dataset.action==='explain'?'Explanation of ':'Refinement of ')+(blocks.find(x=>x.id===state.selectedBlock)?.title||'selected block')+': this child artifact remains linked to its source and does not replace it.'});renderInspectorIfNeeded();render();notify('Prototype child artifact created with parent relationship.')}}));
  $$('[data-prompt]').forEach(b=>b.addEventListener('click',()=>{state.promptId=b.dataset.prompt;render()}));
- $('[data-conv]').forEach(b=>b.addEventListener('click',()=>{state.newConversationPrompt='';state.dest='conversation';render()}));
+ $$('[data-conv]').forEach(b=>b.addEventListener('click',()=>{state.newConversationPrompt='';state.dest='conversation';render()}));
  $$('[data-view]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.view)));
  $$('.folder-item[data-folder]').forEach(b=>b.addEventListener('click',()=>{state.folderFilter=b.dataset.folder;go('work')}));
  $('#clearFolder')?.addEventListener('click',()=>{state.folderFilter=null;render()});
@@ -430,9 +430,9 @@ function bindPage(){
   let web=$('#webSearchToggle');if(web)web.addEventListener('click',()=>{state.webSearch=!state.webSearch;render()});
   let tools=$('#toolsToggle');if(tools)tools.addEventListener('click',()=>{state.toolsEnabled=!state.toolsEnabled;render()});
   let attach=$('#attachMock');if(attach)attach.addEventListener('click',()=>notify('File attachment is shown for layout only in this HTML prototype.'));
-  $('[data-suggestion]').forEach(b=>b.addEventListener('click',()=>{let input=$('#newChatInput');if(input){input.value=b.dataset.suggestion;input.focus()}}));
-  $('[data-branch-node]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();createTreeBranch(b.dataset.branchNode)}));
-  $('[data-tree-node]').forEach(b=>b.addEventListener('click',e=>{if(e.target.closest('[data-branch-node]'))return;state.selectedTreeNode=b.dataset.treeNode;$('[data-tree-node]').forEach(n=>n.classList.toggle('selected',n.dataset.treeNode===state.selectedTreeNode))}));
+  $$('[data-suggestion]').forEach(b=>b.addEventListener('click',()=>{let input=$('#newChatInput');if(input){input.value=b.dataset.suggestion;input.focus()}}));
+  $$('[data-branch-node]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();createTreeBranch(b.dataset.branchNode)}));
+  $$('[data-tree-node]').forEach(b=>b.addEventListener('click',e=>{if(e.target.closest('[data-branch-node]'))return;state.selectedTreeNode=b.dataset.treeNode;$$('[data-tree-node]').forEach(n=>n.classList.toggle('selected',n.dataset.treeNode===state.selectedTreeNode))}));
   let zin=$('#treeZoomIn');if(zin)zin.addEventListener('click',()=>{state.treeZoom=Math.min(1.5,+(state.treeZoom+.1).toFixed(2));render()});
   let zout=$('#treeZoomOut');if(zout)zout.addEventListener('click',()=>{state.treeZoom=Math.max(.5,+(state.treeZoom-.1).toFixed(2));render()});
   let zfit=$('#treeFit');if(zfit)zfit.addEventListener('click',()=>{state.treeZoom=1;render()});
@@ -451,7 +451,7 @@ function submitNewConversation(){
  state.dest='conversation';state.inspector=false;render();notify('Prototype flow only: no provider request was sent.');
 }
 function updatePromptPreview(){let p=prompts.find(x=>x.id===state.promptId)||prompts[0];let v=$('#variableValue')?.value||'WillAI-C workspace';if($('#promptPreview'))$('#promptPreview').textContent=p.text.replace(/{{(system|topic|decision)}}/g,v)}
-function filterConversations(){let q=($('#workSearch')?.value||'').toLowerCase(),p=$('#providerFilter')?.value||'All providers';let list=conversations.filter(c=>(!state.folderFilter||c.folder===state.folderFilter)&&(c.title+' '+c.preview+' '+c.folder).toLowerCase().includes(q)&&(p==='All providers'||c.provider===p));$('#conversationList').innerHTML=list.length?list.map(rowConversation).join(''):'<div class="empty">No conversations match this search.</div>';$$('[data-open-conv]').forEach(b=>b.addEventListener('click',()=>{state.dest='conversation';render()}))}
+function filterConversations(){let q=($('#workSearch')?.value||'').toLowerCase(),p=$('#providerFilter')?.value||'All providers';let list=conversations.filter(c=>(!state.folderFilter||c.folder===state.folderFilter)&&(c.title+' '+c.preview+' '+c.folder).toLowerCase().includes(q)&&(p==='All providers'||c.provider===p));$('#conversationList').innerHTML=list.length?list.map(rowConversation).join(''):'<div class="empty">No conversations match this search.</div>';$$$('[data-open-conv]').forEach(b=>b.addEventListener('click',()=>{state.dest='conversation';render()}))}
 function updateBlockInspector(){let b=blocks.find(x=>x.id===state.selectedBlock);if($('#selectedBlockName')&&b)$('#selectedBlockName').textContent=b.title;if($('#blockInspector')&&b)$('#blockInspector').innerHTML='<div class="panel-row"><span>Block</span><strong>'+b.title+'</strong></div><div class="panel-row"><span>Provenance</span><strong>AI-captured</strong></div><div class="panel-row"><span>Model Context</span><span class="badge '+(b.include?'green':'yellow')+'">'+(b.include?'Included':'Private')+'</span></div><div class="panel-row"><span>Source anchor</span><strong>Message · 04</strong></div>'}
 function openInspector(mode){state.inspector=true;state.inspectorMode=mode;renderInspector()}
 function renderInspectorIfNeeded(){if(state.inspector)renderInspector()}
