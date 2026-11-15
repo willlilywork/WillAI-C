@@ -8,7 +8,7 @@
 ## 1. Resume here
 
 - **Active integration branch:** `rebuild/desktop-first-foundation`
-- **Integration branch commit at this snapshot:** `7e457d32e457182953d08a3bc1071bd26118eeb3`
+- **Latest implementation merge in the integration branch:** `7e457d32e457182953d08a3bc1071bd26118eeb3` (PR #9 squash merge). Later commits on this branch only update this handoff document; always verify the current branch tip before editing.
 - **GitHub default branch:** `main` (currently an older, separate state; do not assume it contains the current rebuild).
 - **Do not merge the rebuild into `main` yet.** The browser/provider path still requires live testing with signed-in accounts and manual validation of the packaged Windows application.
 - **Open PR #1:** [Build WillAI-C as a Chromium browser with integrated WillAI](https://github.com/willlilywork/WillAI-C/pull/1). It targets `main` from `rebuild/desktop-first-foundation`, remains a Draft, and must stay unmerged until the manual validation gate is satisfied.
