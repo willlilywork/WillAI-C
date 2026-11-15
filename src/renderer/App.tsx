@@ -48,7 +48,7 @@ function App() {
   });
   const [address, setAddress] = useState('');
   const [search, setSearch] = useState('');
-  const [browserOpen, setBrowserOpen] = useState(true);
+  const [browserOpen, setBrowserOpen] = useState(false);
   const [panelSizes, setPanelSizes] = useState(() => {
     try {
       const saved = JSON.parse(window.localStorage.getItem('willai-panel-sizes') || '{}');
@@ -56,7 +56,10 @@ function App() {
     } catch { return { sidebar: 232, browser: 430 }; }
   });
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [workspaceView, setWorkspaceView] = useState<'overview' | 'prompts' | 'notes' | 'library'>('overview');
+  const [workspaceView, setWorkspaceView] = useState<'newchat' | 'overview' | 'prompts' | 'notes' | 'library'>('newchat');
+  const [selectedProvider, setSelectedProvider] = useState<Provider>('chatgpt');
+  const [draftPrompt, setDraftPrompt] = useState('');
+  const [pendingPrompt, setPendingPrompt] = useState<{provider: Provider; content: string; dispatched: boolean} | null>(null);
   const [folderFilter, setFolderFilter] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [bulkSelection, setBulkSelection] = useState<string[]>([]);
@@ -147,7 +150,7 @@ function App() {
         if (!alive) return;
         setBrowserState(nextBrowser);
         setSnapshot(nextSnapshot);
-        setActiveConversationId(nextSnapshot.conversations[0]?.id ?? null);
+        setActiveConversationId(null);
         setLoading(false);
       })
       .catch(() => {
@@ -160,6 +163,8 @@ function App() {
     const offBrowser = window.willai.onBrowserState(setBrowserState);
     const offCapture = window.willai.onCapture((result) => {
       setActiveConversationId(result.conversationId);
+      setWorkspaceView('overview');
+      setBrowserOpen(false);
       setNotice(result.created
         ? 'Assistant response captured. It is now available in your WillAI workspace.'
         : 'This response was already present in the workspace.');
@@ -172,9 +177,10 @@ function App() {
       setNotice('Could not save the ' + (result.provider || 'AI') + ' response: ' + result.error);
     });
     const offInsert = window.willai.onContextInsertResult((result) => {
+      setPendingPrompt(null);
       setNotice(result.ok
-        ? 'Selected context was inserted into the provider composer. Review it before sending.'
-        : result.error || 'Could not insert shared context.');
+        ? 'Text inserted into the provider composer. Review it before sending.'
+        : result.error || 'Could not insert text into the provider composer.');
     });
 
     return () => {
@@ -190,6 +196,26 @@ function App() {
   useEffect(() => {
     if (activeTab) setAddress(activeTab.url);
   }, [activeTab?.id, activeTab?.url]);
+
+  useEffect(() => {
+    if (!pendingPrompt || pendingPrompt.dispatched || activeTab?.provider !== pendingPrompt.provider) return;
+    const state = activeTab.captureStatus?.state;
+    if (!state || !['ready', 'message-elements-found', 'response-sent'].includes(state)) return;
+
+    const pending = pendingPrompt;
+    setPendingPrompt({ ...pending, dispatched: true });
+    void window.willai.insertPrompt(pending.content).then(async (result) => {
+      if (!result.ok) {
+        setPendingPrompt(null);
+        setNotice(result.error || 'Could not insert the prompt into the provider composer.');
+        return;
+      }
+      await window.willai.recordPromptHistory(pending.content, pending.provider);
+    }).catch((error) => {
+      setPendingPrompt(null);
+      setNotice(error instanceof Error ? error.message : 'Could not insert the prompt.');
+    });
+  }, [pendingPrompt, activeTab?.id, activeTab?.provider, activeTab?.captureStatus?.state]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -256,6 +282,35 @@ function App() {
     }
   }
 
+  async function startPromptInProvider(provider: Provider, value: string) {
+    const content = value.trim();
+    if (!content || pendingPrompt) return;
+
+    setSelectedProvider(provider);
+    setPendingPrompt({ provider, content, dispatched: false });
+    setBrowserOpen(true);
+    setNotice('Opening ' + providerLabels[provider] + ' and preparing your prompt…');
+
+    const existing = browserState.tabs.find((tab) => {
+      try {
+        const host = new URL(tab.url).hostname.toLowerCase();
+        if (provider === 'chatgpt') return host === 'chatgpt.com' || host === 'chat.openai.com';
+        if (provider === 'claude') return host === 'claude.ai';
+        return host === 'deepseek.com' || host.endsWith('.deepseek.com');
+      } catch {
+        return false;
+      }
+    });
+
+    try {
+      if (existing) await window.willai.activateTab(existing.id);
+      else await window.willai.createTab(providerUrls[provider]);
+    } catch (error) {
+      setPendingPrompt(null);
+      setNotice(error instanceof Error ? error.message : 'Could not open the selected provider.');
+    }
+  }
+
   async function insertContext() {
     if (!activeConversation) return;
     const result = await window.willai.insertContext(activeConversation.id);
@@ -316,7 +371,7 @@ function App() {
           <button type="button" className="header-secondary" onClick={() => setBrowserOpen((value) => !value)}>
             {browserOpen ? 'Hide browser' : 'Open browser'}
           </button>
-          <button type="button" className="header-primary" onClick={() => void openProvider('chatgpt')}>＋ New AI chat</button>
+          <button type="button" className="header-primary" onClick={() => { setWorkspaceView('newchat'); setActiveConversationId(null); setBrowserOpen(false); }}>＋ New conversation</button>
         </div>
       </header>
 
@@ -330,6 +385,9 @@ function App() {
         <aside className="workspace-sidebar">
           <div className="sidebar-section">
             <div className="sidebar-kicker">WORKSPACE</div>
+            <button type="button" className={'sidebar-nav' + (workspaceView === 'newchat' ? ' active' : '')} onClick={() => { setWorkspaceView('newchat'); setActiveConversationId(null); setBrowserOpen(false); }}>
+              <span className="nav-symbol">＋</span><span>New Conversation</span>
+            </button>
             <button type="button" className={'sidebar-nav' + (workspaceView === 'overview' ? ' active' : '')} onClick={() => { setWorkspaceView('overview'); setFolderFilter(null); setShowArchived(false); }}>
               <span className="nav-symbol">⌂</span><span>Overview</span>
             </button>
@@ -443,7 +501,17 @@ function App() {
           onChange={(value) => setPanelSizes((current) => ({ ...current, sidebar: value }))} />
 
         <main className="workspace-main">
-          {workspaceView === 'prompts' ? (
+          {workspaceView === 'newchat' ? (
+            <NewConversation
+              provider={selectedProvider}
+              onProviderChange={setSelectedProvider}
+              prompt={draftPrompt}
+              onPromptChange={setDraftPrompt}
+              onSubmit={() => void startPromptInProvider(selectedProvider, draftPrompt)}
+              pending={Boolean(pendingPrompt)}
+              disabled={loading}
+            />
+          ) : workspaceView === 'prompts' ? (
             <WorkspaceTools mode="prompts" snapshot={snapshot} activeConversation={activeConversation} activeTab={activeTab} onRefresh={refreshSnapshot} onNotice={setNotice} />
           ) : workspaceView === 'notes' ? (
             <WorkspaceTools mode="notes" snapshot={snapshot} activeConversation={activeConversation} activeTab={activeTab} onRefresh={refreshSnapshot} onNotice={setNotice} />
@@ -609,6 +677,66 @@ function FolderSidebarItem({
           depth={depth + 1}
         />
       ))}
+    </div>
+  );
+}
+
+function NewConversation({
+  provider,
+  onProviderChange,
+  prompt,
+  onPromptChange,
+  onSubmit,
+  pending,
+  disabled,
+}: {
+  provider: Provider;
+  onProviderChange: (provider: Provider) => void;
+  prompt: string;
+  onPromptChange: (value: string) => void;
+  onSubmit: () => void;
+  pending: boolean;
+  disabled: boolean;
+}) {
+  return (
+    <div className="new-conversation-screen">
+      <div className="new-conversation-content">
+        <div className="new-conversation-mark"><span>W</span></div>
+        <div className="new-conversation-eyebrow">WILLAI-C WORKSPACE</div>
+        <h1>What would you like to work on?</h1>
+        <p className="new-conversation-description">
+          Start with a prompt. Your provider response will be captured into this workspace, where you can preserve the original and work with its content.
+        </p>
+
+        <form className="new-conversation-composer" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+          <textarea
+            value={prompt}
+            onChange={(event) => onPromptChange(event.target.value)}
+            placeholder="Ask a question, describe a task, or start exploring an idea…"
+            rows={5}
+            aria-label="New conversation prompt"
+            autoFocus
+          />
+          <div className="new-conversation-composer-footer">
+            <label className="new-conversation-provider">
+              <span>Provider</span>
+              <select value={provider} onChange={(event) => onProviderChange(event.target.value as Provider)} disabled={pending}>
+                {(Object.keys(providerLabels) as Provider[]).map((item) => (
+                  <option value={item} key={item}>{providerLabels[item]}</option>
+                ))}
+              </select>
+            </label>
+            <button type="submit" className="new-conversation-submit" disabled={disabled || pending || !prompt.trim()}>
+              {pending ? 'Preparing prompt…' : 'Open provider and insert prompt'} <span>↗</span>
+            </button>
+          </div>
+        </form>
+
+        <div className="new-conversation-footnote">
+          <span className="new-conversation-status-dot" />
+          Uses your existing signed-in provider session. WillAI-C inserts the prompt for review; you submit it on the provider page.
+        </div>
+      </div>
     </div>
   );
 }

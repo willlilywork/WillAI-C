@@ -244,12 +244,8 @@ class BrowserController {
     this.tabs.delete(tabId);
     tab.view.webContents.close();
     if (wasActive) this.activeTabId = this.tabs.keys().next().value || null;
-    if (!this.activeTabId) {
-      this.createTab('https://chatgpt.com/').catch(() => {});
-    } else {
-      this.applyBounds();
-      this.emitState();
-    }
+    this.applyBounds();
+    this.emitState();
   }
 
   navigate(input) {
