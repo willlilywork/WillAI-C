@@ -1,8 +1,10 @@
-# WillAI-C — Browser-First Architecture
+# WillAI-C — Workspace-Centered Architecture
 
 ## 1. Correct product boundary
 
-WillAI-C is a full Chromium-based browser application. A normal browser tab is the primary execution surface for ChatGPT, Claude, DeepSeek, Custom GPTs, and ordinary websites. WillAI's controls, browser chrome, response workspace, organization, prompt system, notes, and media tools belong to WillAI-C itself.
+WillAI-C is a workspace-centered desktop application whose browser engine is Chromium. Chromium is the runtime and embedded web-content engine used to access ChatGPT, Claude, DeepSeek, Custom GPTs, and ordinary websites. It is not the product's application shell and must not dominate the interface.
+
+The WillAI-C workspace is the primary application surface. Conversation organization, prompts, notes, response artifacts, search, and work tools belong to that workspace. Browser tabs and web pages are integrated work surfaces that the workspace controls and presents in a docked or focused view. A captured response becomes a first-class workspace object; it must not remain trapped in a browser tab or an optional side panel.
 
 WillAI-C is not a chat sidebar attached to external Chrome. It does not ask the user to install an extension in Chrome to make the desktop application work. It does not open AI websites in an external browser.
 
@@ -26,19 +28,20 @@ Electron's main process owns:
 
 ### Native web page views
 
-Each browser tab is an Electron `WebContentsView`. It is created and controlled by the main process, attached to the BrowserWindow's content view, and positioned underneath WillAI-C's browser chrome and side panels.
+Each browser tab is an Electron `WebContentsView`. It is created and controlled by the main process, attached to the BrowserWindow's content view, and positioned exactly inside the browser surface assigned by the WillAI workspace. Its bounds must never cover the workspace navigation, response canvas, or application controls.
 
 This is intentionally not an HTML `<webview>` element. Electron advises against relying on its `<webview>` tag and recommends alternatives such as `WebContentsView`. A `WebContentsView` is not part of the renderer DOM, so the React renderer reports the browser viewport rectangle to the main process; the main process sets the active view's bounds and hides inactive views by setting their bounds to zero.
 
 ### Renderer
 
-React + TypeScript renders WillAI-C's application-owned interface:
-- Tab strip.
-- Address/search bar and navigation controls.
-- AI workspace shortcuts and captured conversation list.
-- Optional WillAI response panel.
-- Working Node editor and Model Context controls.
-- Future folders, search, prompts, notes, minimap, highlights, media, and export surfaces.
+React + TypeScript renders the primary WillAI-C application:
+- Workspace navigation, conversation library, and search.
+- Central workspace canvas for conversations, Original Responses, Working Nodes, and Model Context.
+- Integrated browser dock with its own tab/address/navigation controls.
+- Visible provider-adapter health and capture diagnostics.
+- Future folders, prompts, notes, minimap, highlights, media, and export surfaces.
+
+The workspace is always present. The browser is a managed surface inside that application; it can be shown, hidden, or focused without replacing the workspace shell.
 
 The React renderer does not render the provider's page in an iframe. The provider page is its own Chromium WebContentsView, not an HTML child owned by React.
 
@@ -55,7 +58,7 @@ Remote browser content is untrusted:
 - Navigation to non-HTTP(S) schemes is blocked.
 - Site permissions are prompted by WillAI-C instead of being silently granted.
 
-The provider preload runs in the isolated preload world, observes the supported provider page's DOM, and sends only response text/metadata through its private IPC channel. The main process verifies the sending WebContents and current provider origin before storing a capture. It does not read provider cookies or call private provider APIs.
+The provider preload runs in the isolated preload world, observes the supported provider page's DOM, and sends only response text/metadata through its private IPC channel. It also reports whether its adapter loaded, how many candidate message elements it can see, and any capture error. The main process verifies the sending WebContents and current provider origin before storing a capture, then reports success or failure to the workspace. It does not read provider cookies or call private provider APIs. A zero-capture state must be diagnosable in the UI; it must never be presented as proof that capture is working.
 
 ## 3. Internal provider integration
 
@@ -149,27 +152,28 @@ The detailed, user-supplied feature list and Pro boundaries are recorded in [PRO
 
 ## 8. Current implementation status
 
-Implemented in the current browser-first foundation:
+Implemented in the current rework:
 - Chromium-backed WebContentsView browser tabs inside WillAI-C.
+- A workspace-centered application shell with the browser confined to an integrated dock.
 - Address/search navigation, back, forward, reload, new tab, close tab, and provider shortcuts.
 - Persistent Chromium browser session partition.
 - Site permission prompts and browser download save prompts.
-- Internal provider capture preload for ChatGPT, Claude, and DeepSeek.
-- Response and Working Node storage.
-- Private-by-default Working Nodes and explicit model context.
+- Provider-adapter startup and DOM-candidate diagnostics for ChatGPT, Claude, and DeepSeek.
+- Capture success and storage failure surfaced to the workspace.
+- Original Response and Working Node storage, private-by-default nodes, and explicit model context.
 - In-browser context insertion without automatic prompt submission.
 
-Not implemented yet:
+Still not verified or implemented:
+- Live end-to-end response capture on current logged-in ChatGPT, Claude, and DeepSeek sessions. Selector compatibility remains unproven until manually tested in the packaged app.
 - The full folders, prompt, sync, search, notes, community, export, audio, image, GPT Store, Showcase, and Pro features in the product scope.
 - Rich response AST and provider-specific structured block capture.
 - Session restore UI, bookmarks, and full history management.
-- Automated compatibility tests against live provider websites.
-- Packaged Windows/macOS/Linux release validation.
+- Packaged Windows runtime testing and macOS/Linux release validation.
 
 ## 9. Initial development sequence
 
-1. Stabilize Chromium browser shell: tabs, URL entry, navigation, persistent session, downloads, permissions, crash recovery, and keyboard focus.
-2. Verify provider capture and model-context insertion manually on current ChatGPT, Claude, and DeepSeek sessions.
+1. Establish the workspace-centered application shell and make Chromium WebContents a properly bounded, managed browser surface.
+2. Make provider capture observable and reliable: verify adapter attachment, message discovery, stable-response detection, persistence, deduplication, and insertion manually on current logged-in provider sessions.
 3. Replace JSON storage with SQLite and migration tests before adding broad workspace objects.
 4. Build core conversation organization: folders, pins, timestamps, highlights, notes, bulk actions, global search, and temporary/archive/delete rules.
 5. Build the prompt system and composer integrations.
