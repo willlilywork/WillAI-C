@@ -43,7 +43,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .nav-icon{width:18px;text-align:center;color:var(--muted);font-size:16px}
 .nav-item.active .nav-icon{color:var(--accent)}
 .nav-divider{height:1px;background:var(--line-soft);margin:13px 7px}
-.folder-item{display:flex;align-items:center;gap:8px;min-height:34px;padding:0 10px;border-radius:7px;color:var(--sub);font-size:13px;cursor:pointer}
+.folder-item{display:flex;align-items:center;gap:8px;width:100%;min-height:34px;padding:0 10px;border:0;background:transparent;border-radius:7px;color:var(--sub);font:inherit;font-size:13px;text-align:left;cursor:pointer}
 .folder-item:hover,.folder-item.active{background:var(--panel-2);color:var(--text)}
 .folder-dot{width:8px;height:8px;border-radius:3px;background:var(--blue)}
 .folder-item small{margin-left:auto;color:var(--muted)}
@@ -404,7 +404,7 @@ function bindPage(){
  let bg=$('#browserGo');if(bg)bg.addEventListener('click',()=>{state.browserUrl=$('#browserUrl').value;notify('Address updated in mock browser only.')});
 }
 function updatePromptPreview(){let p=prompts.find(x=>x.id===state.promptId)||prompts[0];let v=$('#variableValue')?.value||'WillAI-C workspace';if($('#promptPreview'))$('#promptPreview').textContent=p.text.replace(/{{(system|topic|decision)}}/g,v)}
-function filterConversations(){let q=($('#workSearch')?.value||'').toLowerCase(),p=$('#providerFilter')?.value||'All providers';let list=conversations.filter(c=>(c.title+' '+c.preview+' '+c.folder).toLowerCase().includes(q)&&(p==='All providers'||c.provider===p));$('#conversationList').innerHTML=list.length?list.map(rowConversation).join(''):'<div class="empty">No conversations match this search.</div>';$$('[data-open-conv]').forEach(b=>b.addEventListener('click',()=>{state.dest='conversation';render()}))}
+function filterConversations(){let q=($('#workSearch')?.value||'').toLowerCase(),p=$('#providerFilter')?.value||'All providers';let list=conversations.filter(c=>(!state.folderFilter||c.folder===state.folderFilter)&&(c.title+' '+c.preview+' '+c.folder).toLowerCase().includes(q)&&(p==='All providers'||c.provider===p));$('#conversationList').innerHTML=list.length?list.map(rowConversation).join(''):'<div class="empty">No conversations match this search.</div>';$$('[data-open-conv]').forEach(b=>b.addEventListener('click',()=>{state.dest='conversation';render()}))}
 function updateBlockInspector(){let b=blocks.find(x=>x.id===state.selectedBlock);if($('#selectedBlockName')&&b)$('#selectedBlockName').textContent=b.title;if($('#blockInspector')&&b)$('#blockInspector').innerHTML='<div class="panel-row"><span>Block</span><strong>'+b.title+'</strong></div><div class="panel-row"><span>Provenance</span><strong>AI-captured</strong></div><div class="panel-row"><span>Model Context</span><span class="badge '+(b.include?'green':'yellow')+'">'+(b.include?'Included':'Private')+'</span></div><div class="panel-row"><span>Source anchor</span><strong>Message · 04</strong></div>'}
 function openInspector(mode){state.inspector=true;state.inspectorMode=mode;renderInspector()}
 function renderInspectorIfNeeded(){if(state.inspector)renderInspector()}
