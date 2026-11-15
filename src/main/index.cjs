@@ -315,14 +315,7 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'));
   }
 
-  mainWindow.webContents.once('did-finish-load', async () => {
-    try {
-      await browser.createTab('https://chatgpt.com/');
-      publishBrowserState();
-    } catch (error) {
-      console.error('Could not open the first browser tab:', error.message);
-    }
-  });
+  // Keep the workspace as the startup surface. Provider tabs are opened only on request.
 
   mainWindow.on('resize', () => browser?.applyBounds());
   mainWindow.on('maximize', () => browser?.applyBounds());
