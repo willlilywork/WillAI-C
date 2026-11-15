@@ -1,0 +1,37 @@
+name: Unpack WillAI-C source bootstrap
+
+on:
+  push:
+    branches:
+      - rebuild/desktop-first-foundation
+    paths:
+      - bootstrap/WillAI-C-foundation.zip
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out bootstrap branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          persist-credentials: true
+
+      - name: Extract source tree and commit it
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -oq bootstrap/WillAI-C-foundation.zip -d .
+          rm -f bootstrap/WillAI-C-foundation.zip
+          rmdir bootstrap 2>/dev/null || true
+          rm -f .github/workflows/unpack-bootstrap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "build: unpack WillAI-C desktop foundation source"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
