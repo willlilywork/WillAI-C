@@ -3,6 +3,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { parseMarkdownNodes } = require('./markdown-nodes.cjs');
 const Database = require('better-sqlite3');
+const Database = require('better-sqlite3');
 
 const SUPPORTED_PROVIDERS = new Set(['chatgpt', 'claude', 'deepseek']);
 const MAX_TEXT_LENGTH = 120_000;
@@ -64,8 +65,10 @@ class LocalStore {
     const initialized = this.db.prepare("SELECT value FROM app_metadata WHERE key = 'storage_initialized'").get();
     if (initialized) {
       this.state = this.loadDatabaseState();
+      this.normalizeState();
     } else {
       this.state = this.loadLegacyState();
+      this.normalizeState();
       this.persist();
       if (fs.existsSync(this.filePath) && !fs.existsSync(this.legacyBackupPath)) {
         try { fs.copyFileSync(this.filePath, this.legacyBackupPath); } catch (error) {
@@ -248,6 +251,44 @@ class LocalStore {
     }
   }
 
+  normalizeState() {
+    if (!this.state || typeof this.state !== 'object') this.state = this.defaultState();
+    const collectionNames = ['conversations', 'folders', 'prompts', 'promptHistory', 'notes', 'bookmarks', 'browserHistory', 'promptQueue'];
+    for (const key of collectionNames) if (!Array.isArray(this.state[key])) this.state[key] = [];
+    if (!this.state.settings || typeof this.state.settings !== 'object') this.state.settings = { autoArchiveDays: 0, autoDeleteDays: 0 };
+
+    const folderIds = new Set(this.state.folders.map((item) => item.id));
+    for (const folder of this.state.folders) {
+      if (folder.parentId && !folderIds.has(folder.parentId)) folder.parentId = null;
+    }
+
+    const conversationIds = new Set(this.state.conversations.map((item) => item.id));
+    const promptIds = new Set(this.state.prompts.map((item) => item.id));
+    for (const conversation of this.state.conversations) {
+      if (!folderIds.has(conversation.folderId)) conversation.folderId = null;
+      if (!Array.isArray(conversation.responses)) conversation.responses = [];
+      conversation.referenceConversationIds = [...new Set((conversation.referenceConversationIds || []))]
+        .filter((id) => conversationIds.has(id) && id !== conversation.id);
+      for (const response of conversation.responses) {
+        if (!Array.isArray(response.nodes)) response.nodes = [];
+        const nodeIds = new Set(response.nodes.map((node) => node.id));
+        for (const node of response.nodes) {
+          if (node.parentId && !nodeIds.has(node.parentId)) node.parentId = null;
+          if (node.includeInModelContext === undefined) node.includeInModelContext = false;
+          if (node.deletedAt === undefined) node.deletedAt = null;
+        }
+      }
+    }
+    for (const note of this.state.notes) {
+      if (note.conversationId && !conversationIds.has(note.conversationId)) note.conversationId = null;
+    }
+    for (const item of this.state.promptHistory) {
+      if (item.promptId && !promptIds.has(item.promptId)) item.promptId = null;
+    }
+    this.state.schemaVersion = 1;
+    this.state.dataVersion = 2;
+  }
+
   loadDatabaseState() {
     const metadata = new Map(this.db.prepare('SELECT key, value FROM app_metadata').all().map((row) => [row.key, row.value]));
     const state = this.defaultState();
@@ -275,7 +316,7 @@ class LocalStore {
 
     for (const row of this.db.prepare('SELECT response_id, payload_json FROM working_nodes ORDER BY response_id, sequence, position').all()) {
       const node = JSON.parse(row.payload_json);
-      const response = [...responses.entries()].find(([id]) => id === row.response_id)?.[1];
+      const response = responses.get(row.response_id);
       if (response) response.nodes.push(node);
     }
 
@@ -295,12 +336,15 @@ class LocalStore {
     state.browserHistory = this.db.prepare('SELECT payload_json FROM browser_history ORDER BY visited_at DESC LIMIT 1000').all().map((row) => JSON.parse(row.payload_json));
     state.promptQueue = this.db.prepare('SELECT payload_json FROM prompt_queue ORDER BY position').all().map((row) => JSON.parse(row.payload_json));
     state.settings = Object.fromEntries(this.db.prepare('SELECT key, value_json FROM workspace_settings').all().map((row) => [row.key, JSON.parse(row.value_json)]));
-    if (!state.settings.autoArchiveDays) state.settings.autoArchiveDays = 0;
-    if (!state.settings.autoDeleteDays) state.settings.autoDeleteDays = 0;
-    return state;
+    if (state.settings.autoArchiveDays === undefined) state.settings.autoArchiveDays = 0;
+    if (state.settings.autoDeleteDays === undefined) state.settings.autoDeleteDays = 0;
+    this.state = state;
+    this.normalizeState();
+    return this.state;
   }
 
   persist() {
+    this.normalizeState();
     const upsertFolder = this.db.prepare(
       'INSERT INTO folders (id, parent_id, name, position, color, icon, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?) ' +
       'ON CONFLICT(id) DO UPDATE SET parent_id=excluded.parent_id, name=excluded.name, position=excluded.position, color=excluded.color, icon=excluded.icon, payload_json=excluded.payload_json'
@@ -425,68 +469,30 @@ class LocalStore {
       for (const [key, value] of Object.entries(this.state.settings || {})) {
         upsertSetting.run(key, JSON.stringify(value));
       }
-
-      removeMissing('working_nodes', this.state.conversations.flatMap((conversation) => (conversation.responses || []).flatMap((response) => response.nodes || [])));
-      removeMissing('responses', this.state.conversations.flatMap((conversation) => conversation.responses || []));
-      removeMissing('conversations', this.state.conversations);
-      removeMissing('folders', this.state.folders);
-      removeMissing('prompts', this.state.prompts);
-      removeMissing('prompt_history', this.state.promptHistory);
-      removeMissing('notes', this.state.notes);
-      removeMissing('bookmarks', this.state.bookmarks);
-      removeMissing('browser_history', this.state.browserHistory);
-      removeMissing('prompt_queue', this.state.promptQueue);
-      this.db.exec('DELETE FROM workspace_settings WHERE key NOT IN (' +
-        (Object.keys(this.state.settings || {}).length ? Object.keys(this.state.settings).map(() => '?').join(',') : "''") + ')');
-      if (Object.keys(this.state.settings || {}).length) {
-        this.db.prepare('DELETE FROM workspace_settings WHERE key NOT IN (' + Object.keys(this.state.settings).map(() => '?').join(',') + ')')
-          .run(...Object.keys(this.state.settings));
+      const settingKeys = Object.keys(this.state.settings || {});
+      if (settingKeys.length) {
+        this.db.prepare('DELETE FROM workspace_settings WHERE key NOT IN (' + settingKeys.map(() => '?').join(',') + ')')
+          .run(...settingKeys);
+      } else {
+        this.db.exec('DELETE FROM workspace_settings');
       }
 
       const searchDocuments = [];
-      const providerLabel = (provider) => ({ chatgpt: 'ChatGPT', claude: 'Claude', deepseek: 'DeepSeek' }[provider] || provider);
       for (const conversation of this.state.conversations) {
-        searchDocuments.push({
-          id: 'conversation:' + conversation.id, kind: 'Conversation', entityId: conversation.id,
-          conversationId: conversation.id, title: conversation.title || 'Conversation', body: conversation.sourceUrl || '',
-        });
+        searchDocuments.push({ id: 'conversation:' + conversation.id, kind: 'Conversation', entityId: conversation.id, conversationId: conversation.id, title: conversation.title || 'Conversation', body: conversation.sourceUrl || '' });
         for (const response of conversation.responses || []) {
-          searchDocuments.push({
-            id: 'response:' + response.id, kind: 'Original Response', entityId: response.id,
-            conversationId: conversation.id, title: conversation.title || 'Conversation',
-            body: response.originalContent || '',
-          });
-          for (const node of response.nodes || []) {
-            if (node.deletedAt) continue;
-            searchDocuments.push({
-              id: 'node:' + node.id, kind: 'Working Node', entityId: node.id,
-              conversationId: conversation.id, title: conversation.title || 'Conversation', body: node.content || '',
-            });
+          searchDocuments.push({ id: 'response:' + response.id, kind: 'Original Response', entityId: response.id, conversationId: conversation.id, title: conversation.title || 'Conversation', body: response.originalContent || '' });
+          for (const node of response.nodes || []) if (!node.deletedAt) {
+            searchDocuments.push({ id: 'node:' + node.id, kind: 'Working Node', entityId: node.id, conversationId: conversation.id, title: conversation.title || 'Conversation', body: node.content || '' });
           }
         }
       }
-      for (const prompt of this.state.prompts) searchDocuments.push({
-        id: 'prompt:' + prompt.id, kind: 'Prompt', entityId: prompt.id, conversationId: null,
-        title: prompt.title || '', body: [prompt.content, prompt.category, ...(prompt.tags || [])].join(' '),
-      });
-      for (const item of this.state.promptHistory) searchDocuments.push({
-        id: 'prompt-history:' + item.id, kind: 'Prompt History', entityId: item.id, conversationId: null,
-        title: item.promptTitle || 'Previous prompt', body: item.content || '',
-      });
-      for (const note of this.state.notes) searchDocuments.push({
-        id: 'note:' + note.id, kind: 'Note', entityId: note.id, conversationId: note.conversationId || null,
-        title: note.title || 'Untitled note', body: note.content || '',
-      });
-      for (const bookmark of this.state.bookmarks) searchDocuments.push({
-        id: 'bookmark:' + bookmark.id, kind: 'Bookmark', entityId: bookmark.id, conversationId: null,
-        title: bookmark.name || bookmark.url, body: bookmark.url || '',
-      });
-      for (const item of this.state.browserHistory) searchDocuments.push({
-        id: 'history:' + item.id, kind: 'Browser History', entityId: item.id, conversationId: null,
-        title: item.title || item.url, body: item.url || '',
-      });
-      for (const item of searchDocuments) upsertSearchDocument.run(item.id, item.kind, item.entityId,
-        item.conversationId, item.title, item.body);
+      for (const prompt of this.state.prompts) searchDocuments.push({ id: 'prompt:' + prompt.id, kind: 'Prompt', entityId: prompt.id, conversationId: null, title: prompt.title || '', body: [prompt.content, prompt.category, ...(prompt.tags || [])].join(' ') });
+      for (const item of this.state.promptHistory) searchDocuments.push({ id: 'prompt-history:' + item.id, kind: 'Prompt History', entityId: item.id, conversationId: null, title: item.promptTitle || 'Previous prompt', body: item.content || '' });
+      for (const note of this.state.notes) searchDocuments.push({ id: 'note:' + note.id, kind: 'Note', entityId: note.id, conversationId: note.conversationId || null, title: note.title || 'Untitled note', body: note.content || '' });
+      for (const bookmark of this.state.bookmarks) searchDocuments.push({ id: 'bookmark:' + bookmark.id, kind: 'Bookmark', entityId: bookmark.id, conversationId: null, title: bookmark.name || bookmark.url, body: bookmark.url || '' });
+      for (const item of this.state.browserHistory) searchDocuments.push({ id: 'history:' + item.id, kind: 'Browser History', entityId: item.id, conversationId: null, title: item.title || item.url, body: item.url || '' });
+      for (const item of searchDocuments) upsertSearchDocument.run(item.id, item.kind, item.entityId, item.conversationId, item.title, item.body);
       removeMissing('search_documents', searchDocuments.map((item) => ({ id: item.id })));
 
       this.state.schemaVersion = 1;
@@ -514,9 +520,7 @@ class LocalStore {
       'WHERE workspace_fts MATCH ? ORDER BY bm25(workspace_fts), d.title COLLATE NOCASE LIMIT ?'
     ).all(matchExpression, maxResults);
     return rows.map((row) => {
-      const conversation = row.conversation_id
-        ? this.state.conversations.find((item) => item.id === row.conversation_id)
-        : null;
+      const conversation = row.conversation_id ? this.state.conversations.find((item) => item.id === row.conversation_id) : null;
       const provider = conversation ? ({ chatgpt: 'ChatGPT', claude: 'Claude', deepseek: 'DeepSeek' }[conversation.provider] || conversation.provider) : null;
       const subtitles = {
         'Conversation': provider ? provider + ' · Conversation' : 'Conversation',
@@ -529,10 +533,7 @@ class LocalStore {
         'Browser History': 'Browser history',
       };
       return {
-        id: row.entity_id,
-        kind: row.kind,
-        title: row.title,
-        subtitle: subtitles[row.kind] || row.kind,
+        id: row.entity_id, kind: row.kind, title: row.title, subtitle: subtitles[row.kind] || row.kind,
         excerpt: cleanText(row.excerpt || row.body || row.title, 500),
         ...(row.conversation_id ? { conversationId: row.conversation_id } : {}),
         ...(row.kind === 'Bookmark' || row.kind === 'Browser History' ? { url: row.body } : {}),
@@ -690,6 +691,7 @@ class LocalStore {
 
   deletePrompt(promptId) {
     this.state.prompts = this.state.prompts.filter((item) => item.id !== promptId);
+    for (const item of this.state.promptHistory) if (item.promptId === promptId) item.promptId = null;
     for (const item of this.state.promptHistory) if (item.promptId === promptId) item.promptId = null;
     this.persist();
     return { ok: true };
