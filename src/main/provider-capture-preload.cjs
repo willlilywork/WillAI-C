@@ -142,7 +142,9 @@ const { ipcRenderer } = require('electron');
           text: stableText,
           blocks,
         });
-        reportStatus('response-sent', usableCount, 'An assistant response was sent to WillAI-C for storage.');
+        // The main process reports success only after LocalStore.capture completes.
+        // Do not publish a provisional success here: it could arrive after and mask
+        // a persistence error from the main process.
       }, 1400);
     }
 
