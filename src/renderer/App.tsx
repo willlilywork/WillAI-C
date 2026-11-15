@@ -190,9 +190,11 @@ function App() {
       setActiveConversationId(result.conversationId);
       setWorkspaceView('work');
       setBrowserOpen(false);
-      setNotice(result.created
-        ? 'Assistant response captured. It is now available in your WillAI workspace.'
-        : 'This response was already present in the workspace.');
+      setNotice(result.updated
+        ? 'Assistant response updated. Its Working Nodes now reflect the completed answer.'
+        : result.created
+          ? 'Assistant response captured. It is now available in your WillAI workspace.'
+          : 'This response was already present in the workspace.');
       void refreshSnapshot().catch(() => setNotice('The response event arrived, but the workspace could not refresh.'));
     });
     const offSnapshot = window.willai.onSnapshotChanged(() => {

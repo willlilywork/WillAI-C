@@ -162,3 +162,119 @@ test('outline supports sibling insertion, indentation, outdent, and reordering',
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+
+test('a growing provider response updates its existing Original Response and Working Nodes', () => {
+  const { directory, store } = makeStore();
+  try {
+    const first = store.capture({
+      provider: 'chatgpt',
+      sourceUrl: 'https://chatgpt.com/c/growing-answer',
+      title: 'Growing answer',
+      sourceMessageId: 'assistant-message-growing',
+      text: '# Answer\\n\\nThe first part.',
+    });
+    const original = store.getSnapshot().conversations[0].responses[0];
+    const firstHeadingId = original.nodes.find((node) => node.nodeType === 'heading').id;
+
+    const updated = store.capture({
+      provider: 'chatgpt',
+      sourceUrl: 'https://chatgpt.com/c/growing-answer',
+      title: 'Growing answer',
+      sourceMessageId: 'assistant-message-growing',
+      text: '# Answer\\n\\nThe completed first part.\\n\\n## Details\\n\\nA second paragraph.',
+    });
+
+    const response = store.getSnapshot().conversations[0].responses[0];
+    assert.equal(first.created, true);
+    assert.equal(updated.created, false);
+    assert.equal(updated.updated, true);
+    assert.equal(store.getSnapshot().conversations[0].responses.length, 1);
+    assert.match(response.originalContent, /completed first part/);
+    assert.ok(response.nodes.some((node) => node.content === '## Details'));
+    assert.ok(response.nodes.some((node) => node.content === 'A second paragraph.'));
+    assert.equal(response.nodes.find((node) => node.nodeType === 'heading').id, firstHeadingId);
+  } finally {
+    store.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('response revisions preserve a manually edited Working Node', () => {
+  const { directory, store } = makeStore();
+  try {
+    store.capture({
+      provider: 'chatgpt',
+      sourceUrl: 'https://chatgpt.com/c/edited-growing-answer',
+      title: 'Edited answer',
+      sourceMessageId: 'assistant-message-edited',
+      text: '# Answer\\n\\nOriginal wording.',
+    });
+    const response = store.getSnapshot().conversations[0].responses[0];
+    const paragraph = response.nodes.find((node) => node.nodeType === 'paragraph');
+    store.updateNode(paragraph.id, 'My edited wording.');
+
+    store.capture({
+      provider: 'chatgpt',
+      sourceUrl: 'https://chatgpt.com/c/edited-growing-answer',
+      title: 'Edited answer',
+      sourceMessageId: 'assistant-message-edited',
+      text: '# Answer\\n\\nFinal source wording.\\n\\nNew paragraph.',
+    });
+
+    const revised = store.getSnapshot().conversations[0].responses[0];
+    const preserved = revised.nodes.find((node) => node.id === paragraph.id);
+    assert.equal(revised.originalContent.includes('Final source wording.'), true);
+    assert.equal(preserved.content, 'My edited wording.');
+    assert.equal(preserved.initialContent, 'Final source wording.');
+    assert.equal(preserved.provenance, 'human-edited');
+    assert.ok(revised.nodes.some((node) => node.content === 'New paragraph.'));
+  } finally {
+    store.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('capturing a Markdown answer creates typed and nested Working Nodes', () => {
+  const { directory, store } = makeStore();
+  try {
+    const markdown = [
+      '# Summary',
+      '',
+      'Introductory paragraph.',
+      '',
+      '## Steps',
+      '',
+      '- First item',
+      '  - Nested item',
+      '- Second item',
+      '',
+      '```typescript',
+      'const answer = 42;',
+      '```',
+      '',
+      '| Name | Value |',
+      '| --- | --- |',
+      '| Alpha | One |',
+    ].join('\\n');
+    store.capture({
+      provider: 'chatgpt',
+      sourceUrl: 'https://chatgpt.com/c/markdown-to-nodes',
+      title: 'Markdown answer',
+      sourceMessageId: 'assistant-markdown',
+      text: markdown,
+    });
+    const nodes = store.getSnapshot().conversations[0].responses[0].nodes;
+    assert.ok(nodes.some((node) => node.nodeType === 'heading' && node.content === '# Summary'));
+    assert.ok(nodes.some((node) => node.nodeType === 'heading' && node.content === '## Steps'));
+    const first = nodes.find((node) => node.content === 'First item');
+    const nested = nodes.find((node) => node.content === 'Nested item');
+    assert.ok(first && nested);
+    assert.equal(nested.parentId, first.id);
+    assert.ok(nodes.some((node) => node.nodeType === 'code' && /const answer = 42/.test(node.content)));
+    assert.ok(nodes.some((node) => node.nodeType === 'table'));
+  } finally {
+    store.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -1009,15 +1009,60 @@ class LocalStore {
         : response.fingerprint === contentFingerprint,
     );
 
-    if (duplicate) {
-      conversation.updatedAt = now();
-      this.persist();
-      return { created: false, conversationId: conversation.id, responseId: duplicate.id };
+    if (duplicate && duplicate.fingerprint === contentFingerprint) {
+      return { created: false, updated: false, conversationId: conversation.id, responseId: duplicate.id };
     }
 
     const nodeSpecs = parseMarkdownNodes(originalContent);
     if (!nodeSpecs.length) throw new Error('The captured response did not contain readable Markdown blocks.');
     const capturedAt = now();
+
+    if (duplicate) {
+      const existingBySequence = new Map(
+        (duplicate.nodes || [])
+          .filter((node) => !node.deletedAt)
+          .map((node) => [Number(node.sequence), node]),
+      );
+      const nodeIds = nodeSpecs.map((_, index) => existingBySequence.get(index)?.id || crypto.randomUUID());
+      const refreshedNodes = nodeSpecs.map((spec, index) => {
+        const previous = existingBySequence.get(index);
+        const sourceContent = spec.content;
+        return {
+          id: nodeIds[index],
+          parentId: spec.parentIndex === null ? null : nodeIds[spec.parentIndex],
+          content: previous && previous.provenance !== 'captured' ? previous.content : sourceContent,
+          initialContent: sourceContent,
+          position: spec.position,
+          sequence: index,
+          nodeType: spec.nodeType,
+          headingLevel: spec.headingLevel || null,
+          listOrdered: Boolean(spec.listOrdered),
+          listStart: spec.listStart || 1,
+          listIndex: spec.listIndex ?? spec.position,
+          provenance: previous?.provenance || 'captured',
+          includeInModelContext: Boolean(previous?.includeInModelContext),
+          createdAt: previous?.createdAt || capturedAt,
+          updatedAt: capturedAt,
+          deletedAt: null,
+        };
+      });
+      const refreshedIds = new Set(refreshedNodes.map((node) => node.id));
+      const retainedNodes = (duplicate.nodes || [])
+        .filter((node) => !refreshedIds.has(node.id))
+        .map((node) => node.provenance === 'captured' && node.content === node.initialContent && !node.deletedAt
+          ? { ...node, deletedAt: capturedAt, updatedAt: capturedAt }
+          : node);
+
+      duplicate.originalContent = originalContent;
+      duplicate.fingerprint = contentFingerprint;
+      duplicate.contentFormat = 'markdown';
+      duplicate.updatedAt = capturedAt;
+      duplicate.nodes = [...refreshedNodes, ...retainedNodes];
+      conversation.updatedAt = capturedAt;
+      this.persist();
+      return { created: false, updated: true, conversationId: conversation.id, responseId: duplicate.id };
+    }
+
     const nodeIds = nodeSpecs.map(() => crypto.randomUUID());
     const response = {
       id: crypto.randomUUID(),

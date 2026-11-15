@@ -266,11 +266,11 @@ function registerRendererIpc() {
         sourceUrl: event.sender.getURL(),
         title: event.sender.getTitle() || payload.title,
       });
-      acknowledge({ ok: true, created: result.created });
+      acknowledge({ ok: true, created: result.created, updated: Boolean(result.updated) });
       browser.markCaptured(event.sender);
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('willai:capture-received', result);
-        if (result.created) mainWindow.webContents.send('willai:snapshot-changed');
+        if (result.created || result.updated) mainWindow.webContents.send('willai:snapshot-changed');
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

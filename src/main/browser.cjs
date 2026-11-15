@@ -17,7 +17,14 @@ class BrowserController {
     this.adapterReadyWaiters = new Map();
     this.pendingPromptSubmissions = new Map();
     this.activeTabId = null;
-    this.contentBounds = { x: 0, y: 0, width: 0, height: 0 };
+    const initialSize = typeof window.getContentSize === 'function' ? window.getContentSize() : [1280, 800];
+    this.contentBounds = {
+      x: 0,
+      y: 0,
+      width: Math.max(1, Math.round(Number(initialSize?.[0]) || 1280)),
+      height: Math.max(1, Math.round(Number(initialSize?.[1]) || 800)),
+    };
+    this.browserVisible = false;
     this.browserSession = session.fromPartition(SESSION_PARTITION);
     this.permissionGrants = new Set();
     this.installPermissionHandlers();
@@ -121,11 +128,10 @@ class BrowserController {
 
   applyBounds() {
     for (const tab of this.tabs.values()) {
-      if (tab.id === this.activeTabId) {
-        tab.view.setBounds(this.contentBounds);
-      } else {
-        tab.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-      }
+      // A zero-sized native view also collapses the provider page's DOM viewport.
+      // Keep a valid layout size and hide the native view instead.
+      tab.view.setBounds(this.contentBounds);
+      tab.view.setVisible(this.browserVisible && tab.id === this.activeTabId);
     }
   }
 
@@ -136,7 +142,14 @@ class BrowserController {
       width: Math.max(0, Math.round(Number(bounds.width) || 0)),
       height: Math.max(0, Math.round(Number(bounds.height) || 0)),
     };
-    this.contentBounds = next;
+    if (next.width > 0 && next.height > 0) {
+      this.contentBounds = next;
+      this.browserVisible = true;
+    } else {
+      // Hide without collapsing the page viewport. Background provider DOM
+      // interaction and response capture need a normal, non-zero layout.
+      this.browserVisible = false;
+    }
     this.applyBounds();
   }
 
@@ -325,7 +338,7 @@ class BrowserController {
         const timer = setTimeout(() => {
           this.pendingPromptSubmissions.delete(requestId);
           resolve({ ok: false, error: 'The provider did not confirm that the prompt was sent. Open Browser to review the composer.' });
-        }, 12000);
+        }, 25000);
         this.pendingPromptSubmissions.set(requestId, {
           tabId: tab.id,
           provider: selectedProvider,
