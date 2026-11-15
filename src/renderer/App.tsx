@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import MarkdownIt from 'markdown-it';
+import './markdown.css';
 
 const providerLabels: Record<Provider, string> = {
   chatgpt: 'ChatGPT',
@@ -17,6 +19,25 @@ const providerIcons: Record<Provider, string> = {
   claude: '✴',
   deepseek: '◈',
 };
+
+const markdownRenderer = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: false,
+  typographer: false,
+});
+
+function MarkdownContent({
+  content,
+  className = 'markdown-content',
+}: {
+  content: string;
+  className?: string;
+}) {
+  const html = markdownRenderer.render(content || '');
+  return <div className={className} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
 
 function App() {
   const [browserState, setBrowserState] = useState<BrowserState>({ tabs: [], activeTabId: null });
@@ -578,7 +599,7 @@ function ConversationWorkbench({
           <div className="response-editor-layout">
             <section className="original-response-card">
               <div className="response-card-heading"><span className="section-eyebrow">SOURCE RECORD</span><span className="read-only-label">Original response · read only</span></div>
-              <pre>{response.originalContent}</pre>
+              <MarkdownContent content={response.originalContent} className="source-markdown" />
             </section>
 
             <section className="working-nodes-section">
@@ -618,16 +639,21 @@ function NodeEditor({
   onDelete: (id: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState(node.content);
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const children = allNodes.filter((item) => item.parentId === node.id && !item.deletedAt).sort((a, b) => a.position - b.position);
   const dirty = draft !== node.content;
 
-  useEffect(() => setDraft(node.content), [node.content]);
+  useEffect(() => {
+    setDraft(node.content);
+    setEditing(false);
+  }, [node.content]);
 
   async function save() {
     setSaving(true);
     try {
       await onSave(node.id, draft);
+      setEditing(false);
     } finally {
       setSaving(false);
     }
@@ -638,15 +664,43 @@ function NodeEditor({
       <div className="node-editor-card">
         <div className="node-editor-top">
           <span className="node-type">{node.provenance === 'captured' ? 'CAPTURED NODE' : node.provenance === 'human-edited' ? 'HUMAN EDITED' : 'USER NODE'}</span>
-          <button type="button" onClick={() => void onDelete(node.id)}>Delete</button>
+          <div className="node-top-actions">
+            <button type="button" onClick={() => {
+              if (editing) {
+                setDraft(node.content);
+                setEditing(false);
+              } else {
+                setEditing(true);
+              }
+            }}>{editing ? 'Cancel' : 'Edit'}</button>
+            <button type="button" onClick={() => void onDelete(node.id)}>Delete</button>
+          </div>
         </div>
-        <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={Math.max(3, Math.min(10, draft.split('\n').length + 1))} placeholder="Edit this node…" />
+
+        {editing ? (
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            rows={Math.max(3, Math.min(12, draft.split('\n').length + 1))}
+            placeholder="Edit this Markdown node…"
+          />
+        ) : (
+          <div
+            className="node-markdown"
+            data-node-type={node.nodeType || 'paragraph'}
+            data-list-ordered={node.listOrdered ? 'true' : 'false'}
+            data-position={(node.listIndex ?? node.position) + (node.listStart || 1)}
+          >
+            <MarkdownContent content={node.content} className="node-markdown-body" />
+          </div>
+        )}
+
         <div className="node-editor-actions">
           <button type="button" className={node.includeInModelContext ? 'shared' : ''} onClick={() => void onShared(node.id, !node.includeInModelContext)}>
             <span className="sharing-dot" />{node.includeInModelContext ? 'Included in model context' : 'Keep private'}
           </button>
           <div>
-            {dirty && <button type="button" className="save-node" disabled={saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save changes'}</button>}
+            {editing && dirty && <button type="button" className="save-node" disabled={saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save changes'}</button>}
             <button type="button" onClick={() => void onAddChild(node.id)}>＋ Child node</button>
           </div>
         </div>
@@ -659,5 +713,4 @@ function NodeEditor({
     </div>
   );
 }
-
 export default App;

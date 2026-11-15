@@ -19,6 +19,12 @@ declare global {
     content: string;
     initialContent: string;
     position: number;
+    sequence?: number;
+    nodeType?: 'paragraph' | 'heading' | 'list-item' | 'blockquote' | 'code' | 'table' | 'divider' | 'html' | string;
+    headingLevel?: number | null;
+    listOrdered?: boolean;
+    listStart?: number;
+    listIndex?: number;
     provenance: 'captured' | 'human-edited' | 'human-created' | string;
     includeInModelContext: boolean;
     createdAt: string;
@@ -30,6 +36,7 @@ declare global {
     id: string;
     sourceMessageId: string | null;
     originalContent: string;
+    contentFormat?: 'markdown' | string;
     capturedAt: string;
     nodes: WorkingNode[];
   }

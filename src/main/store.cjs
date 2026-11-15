@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { parseMarkdownNodes } = require('./markdown-nodes.cjs');
 
 const SUPPORTED_PROVIDERS = new Set(['chatgpt', 'claude', 'deepseek']);
 const MAX_TEXT_LENGTH = 120_000;
@@ -151,26 +152,29 @@ class LocalStore {
       return { created: false, conversationId: conversation.id, responseId: duplicate.id };
     }
 
-    const suppliedBlocks = Array.isArray(input.blocks)
-      ? input.blocks.map((block) => cleanText(block)).filter(Boolean)
-      : [];
-    const blocks = suppliedBlocks.length
-      ? suppliedBlocks
-      : originalContent.split(/\n\s*\n/).map(cleanText).filter(Boolean);
-    const safeBlocks = blocks.length ? blocks : [originalContent];
+    const nodeSpecs = parseMarkdownNodes(originalContent);
+    if (!nodeSpecs.length) throw new Error('The captured response did not contain readable Markdown blocks.');
     const capturedAt = now();
+    const nodeIds = nodeSpecs.map(() => crypto.randomUUID());
     const response = {
       id: crypto.randomUUID(),
       sourceMessageId,
       fingerprint: contentFingerprint,
+      contentFormat: 'markdown',
       originalContent,
       capturedAt,
-      nodes: safeBlocks.map((content, index) => ({
-        id: crypto.randomUUID(),
-        parentId: null,
-        content,
-        initialContent: content,
-        position: index,
+      nodes: nodeSpecs.map((spec, index) => ({
+        id: nodeIds[index],
+        parentId: spec.parentIndex === null ? null : nodeIds[spec.parentIndex],
+        content: spec.content,
+        initialContent: spec.content,
+        position: spec.position,
+        sequence: index,
+        nodeType: spec.nodeType,
+        headingLevel: spec.headingLevel || null,
+        listOrdered: Boolean(spec.listOrdered),
+        listStart: spec.listStart || 1,
+        listIndex: spec.listIndex ?? spec.position,
         provenance: 'captured',
         includeInModelContext: false,
         createdAt: capturedAt,
@@ -225,12 +229,19 @@ class LocalStore {
         throw new Error('Parent node not found in this response.');
       }
       const timestamp = now();
+      const siblings = (response.nodes || []).filter((item) => (item.parentId || null) === (parentId || null));
+      const nextSequence = (response.nodes || []).reduce((max, item) => Math.max(max, Number(item.sequence) || 0), -1) + 1;
       const node = {
         id: crypto.randomUUID(),
         parentId: parentId || null,
         content: '',
         initialContent: '',
-        position: response.nodes.length,
+        position: siblings.length,
+        sequence: nextSequence,
+        nodeType: 'paragraph',
+        headingLevel: null,
+        listOrdered: false,
+        listStart: 1,
         provenance: 'human-created',
         includeInModelContext: false,
         createdAt: timestamp,
@@ -272,16 +283,45 @@ class LocalStore {
   }
 
   buildContext(conversation) {
-    const nodes = flattenNodes(conversation)
-      .filter((node) => !node.deletedAt && node.includeInModelContext && node.content.trim())
-      .sort((a, b) => a.position - b.position);
+    const allNodes = flattenNodes(conversation)
+      .filter((node) => !node.deletedAt)
+      .sort((a, b) => (a.sequence ?? a.position) - (b.sequence ?? b.position));
+    if (!allNodes.some((node) => node.includeInModelContext && node.content.trim())) return '';
 
-    if (!nodes.length) return '';
-    const sections = nodes.map((node, index) => `${index + 1}. ${node.content}`);
+    const childrenByParent = new Map();
+    for (const node of allNodes) {
+      const key = node.parentId || 'root';
+      if (!childrenByParent.has(key)) childrenByParent.set(key, []);
+      childrenByParent.get(key).push(node);
+    }
+
+    const lines = [];
+    const visit = (parentId, depth) => {
+      const children = childrenByParent.get(parentId || 'root') || [];
+      for (const node of children) {
+        let nextDepth = depth;
+        if (node.includeInModelContext && node.content.trim()) {
+          const indent = '  '.repeat(depth);
+          const content = String(node.content).replace(/\n/g, '\n' + indent + '  ');
+          if (node.nodeType === 'list-item') {
+            const marker = node.listOrdered
+              ? String((node.listIndex ?? node.position ?? 0) + (node.listStart || 1)) + '. '
+              : '- ';
+            lines.push(indent + marker + content);
+            nextDepth += 1;
+          } else {
+            lines.push(indent + content);
+          }
+        }
+        visit(node.id, nextDepth);
+      }
+    };
+    visit(null, 0);
+
     return [
       '[WillAI-C shared context]',
       `Source: ${conversation.provider} — ${conversation.title}`,
-      ...sections,
+      ...lines,
       '[End WillAI-C shared context]',
     ].join('\n\n');
   }
