@@ -200,7 +200,7 @@ function App() {
   useEffect(() => {
     if (!pendingPrompt || pendingPrompt.dispatched || activeTab?.provider !== pendingPrompt.provider) return;
     const state = activeTab.captureStatus?.state;
-    if (!state || !['ready', 'message-elements-found', 'response-sent'].includes(state)) return;
+    if (!state || !['ready', 'no-message-elements', 'message-elements-found', 'response-sent'].includes(state)) return;
 
     const pending = pendingPrompt;
     setPendingPrompt({ ...pending, dispatched: true });

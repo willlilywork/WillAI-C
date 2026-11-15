@@ -27,6 +27,6 @@ test('closing the last browser tab leaves the browser empty', () => {
 test('provider prompts are inserted only after the adapter reports readiness', () => {
   const app = fs.readFileSync(path.join(root, 'src/renderer/App.tsx'), 'utf8');
   assert.match(app, /pendingPrompt\.dispatched/);
-  assert.match(app, /\['ready', 'message-elements-found', 'response-sent'\]/);
+  assert.match(app, /\['ready', 'no-message-elements', 'message-elements-found', 'response-sent'\]/);
   assert.match(app, /window\.willai\.insertPrompt\(pending\.content\)/);
 });
