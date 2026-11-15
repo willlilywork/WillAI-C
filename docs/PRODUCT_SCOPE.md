@@ -182,12 +182,17 @@ This release adds a local workspace-organization and productivity slice on top o
 - Nodes can be edited, deleted, extended, and explicitly included in or excluded from later model context.
 
 ### Implemented foundation carried forward
-- Workspace-centered desktop shell with an integrated Chromium dock.
+
+- Workspace-centered desktop shell with an integrated Chromium dock; New Conversation is the default starting surface.
 - Tabs, navigation, address/search field, back/forward/reload, and AI-provider shortcuts.
 - Persistent browser session.
-- Internal provider capture adapters for ChatGPT, Claude, and DeepSeek, with visible diagnostics.
-- Local JSON persistence and migration of existing local data to the 0.2.0 workspace collections without dropping existing conversations.
+- Internal provider capture adapters for ChatGPT, Claude, and DeepSeek, with readiness and capture diagnostics.
+- New Conversation can submit a prompt through the selected provider's existing signed-in session. WillAI-C reuses or opens an in-app background provider tab, waits for adapter readiness, inserts the prompt, and activates the provider's enabled send control.
+- The provider observer monitors assistant responses and attempts to capture completed, stabilised content; the main process validates the originating provider tab and persists the Original Response. Live compatibility with current provider pages remains subject to manual testing.
+- SQLite local persistence through the Electron main-process repository, including transactional writes, foreign keys, indexes, WAL mode, schema versioning, and FTS5. Existing legacy JSON workspace data is migrated and retained as a separate migrated backup after a successful import.
 - Sandboxed provider preload and context-isolated application preload.
+
+The provider send-control acknowledgement confirms only that the page's send button was activated. It is not proof of remote acceptance or completed response capture. The manual prompt queue remains a separate feature: it inserts a queued item into the provider composer for the user to review and submit. Explicit Model Context insertion also remains insertion-only and does not submit automatically.
 
 ### Not implemented in 0.2.0
 

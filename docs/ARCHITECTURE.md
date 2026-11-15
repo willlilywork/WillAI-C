@@ -152,32 +152,40 @@ The detailed, user-supplied feature list and Pro boundaries are recorded in [PRO
 
 ## 8. Current implementation status
 
-Implemented in the current rework:
-- Chromium-backed WebContentsView browser tabs inside WillAI-C.
-- A workspace-centered application shell with the browser confined to an integrated dock.
-- Address/search navigation, back, forward, reload, new tab, close tab, and provider shortcuts.
-- Persistent Chromium browser session partition.
-- Site permission prompts and browser download save prompts.
-- Provider-adapter startup and DOM-candidate diagnostics for ChatGPT, Claude, and DeepSeek.
-- Capture success and storage failure surfaced to the workspace.
-- Original Response and Working Node storage, private-by-default nodes, and explicit model context.
-- In-browser context insertion without automatic prompt submission.
+Implemented in the current integration branch:
+
+- New Conversation is the default starting surface in a workspace-centered Electron application.
+- Chromium-backed WebContentsView tabs are managed inside an integrated Browser dock. The workspace remains visible and owns the application shell.
+- The New Conversation submission path reuses or opens the selected provider tab, waits for its isolated adapter, inserts the prompt, and activates the provider's enabled send control. The provider page can continue loading and submitting while its native view is hidden from the workspace.
+- Provider adapters for ChatGPT, Claude, and DeepSeek report readiness, message-element discovery, and capture errors.
+- The provider observer monitors assistant content, waits for it to stabilise, converts supported DOM content to Markdown, and sends it to the main process. The main process validates the source tab/provider and persists the Original Response.
+- Original Responses remain separate from editable, nested Working Nodes. Working Nodes are private by default and only explicitly selected nodes enter Model Context.
+- SQLite is the local source of truth through a transactional main-process repository. The schema uses foreign keys, indexes, WAL mode, schema versioning, and FTS5. Legacy JSON data is migrated and retained as a backup.
+- The local productivity slice includes folders/subfolders, conversation pin/archive/bulk actions, prompt management with variables/favourites/history/import/export, a manually submitted prompt queue, global and conversation notes, conversation references, bookmarks/history, and Markdown/TXT/HTML/JSON/PDF conversation export.
+- GitHub Actions currently verifies tests, TypeScript, the renderer build, Electron syntax, and the Windows installer packaging workflow.
+
+### Submission acknowledgement boundary
+
+A successful willai:prompt-submit-result means the provider page's enabled send control was activated. It does not prove remote acceptance, generation completion, or successful capture. Response detection, persistence, and the workspace update are separate events. Do not represent a send-button click as proof of an end-to-end successful request.
+
+The separate **Insert shared context** action only inserts the selected context into the provider composer for review; it does not submit. The prompt queue also inserts items for manual submission. These behaviors must not be conflated with the New Conversation **Send request** path.
 
 Still not verified or implemented:
-- Live end-to-end response capture on current logged-in ChatGPT, Claude, and DeepSeek sessions. Selector compatibility remains unproven until manually tested in the packaged app.
-- The full folders, prompt, sync, search, notes, community, export, audio, image, GPT Store, Showcase, and Pro features in the product scope.
-- Rich response AST and provider-specific structured block capture.
-- Session restore UI, bookmarks, and full history management.
-- Packaged Windows runtime testing and macOS/Linux release validation.
 
-## 9. Initial development sequence
+- Live end-to-end submission and response capture against current signed-in ChatGPT, Claude, and DeepSeek sessions. Confirm the remote request proceeds, the completed answer is captured once, Markdown formatting is preserved, the correct provider/conversation is associated, and the result appears in Work.
+- Manual installation and operation of the packaged Windows application, including relaunch, existing workspace data, browser sign-in/session persistence, and legacy JSON migration/recovery. A green Windows packaging workflow is not a substitute for this test.
+- Packaged macOS/Linux release validation.
+- Provider-specific structured response AST and full fidelity for rich content such as images, audio, video, citations, and interactive tool output. Current capture is a Markdown-oriented text path.
+- The remaining product-scope features not listed as implemented in [PRODUCT_SCOPE.md](./PRODUCT_SCOPE.md), including conversation tree maps, minimaps, highlights/annotations, advanced message navigation, advanced prompt automation, voice/media features, GPT discovery, Showcase, cloud sync, community services, and Pro entitlements.
 
-1. Establish the workspace-centered application shell and make Chromium WebContents a properly bounded, managed browser surface.
-2. Make provider capture observable and reliable: verify adapter attachment, message discovery, stable-response detection, persistence, deduplication, and insertion manually on current logged-in provider sessions.
-3. Replace JSON storage with SQLite and migration tests before adding broad workspace objects.
-4. Build core conversation organization: folders, pins, timestamps, highlights, notes, bulk actions, global search, and temporary/archive/delete rules.
-5. Build the prompt system and composer integrations.
-6. Add export/print, audio/voice, image gallery, and GPT discovery.
-7. Add optional sync, community prompts, Showcase, paid recipes, and centralized Pro entitlements.
+
+
+## 9. Immediate continuation sequence
+
+1. Run live smoke tests with signed-in ChatGPT, Claude, and DeepSeek sessions. For each provider, verify adapter readiness, prompt insertion, send-control activation, remote request progress, completed response capture, correct provider/conversation association, Markdown fidelity, and deduplication.
+2. Install the Windows x64 test artifact manually. Test a fresh install and an upgrade/relaunch with existing local workspace data; verify provider sign-ins, SQLite persistence, and the legacy JSON migration/backup path.
+3. Fix any provider-specific selector, submission, or capture failures found by those tests. Keep send initiation, remote response completion, and persistence as independently observable states.
+4. Continue implementation against the complete feature register in [PRODUCT_SCOPE.md](./PRODUCT_SCOPE.md), checking the existing repository before adding functionality so delivered features are not duplicated.
+5. Keep PR #1 as Draft and do not merge the integration branch into main until the live provider and packaged Windows validation gates are satisfied.
 
 The Pro features remain part of the product requirements from the beginning, but their service dependencies and licensing are implemented when the corresponding base capabilities exist.
