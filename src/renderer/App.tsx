@@ -758,7 +758,15 @@ function ConversationWorkbench({
 }) {
   const [selectedResponseId, setSelectedResponseId] = useState(conversation.responses.at(-1)?.id ?? null);
   const [referencesOpen, setReferencesOpen] = useState(false);
-  const [sourcePaneWidth, setSourcePaneWidth] = useState(450);
+  const [sourcePaneWidth, setSourcePaneWidth] = useState(() => {
+    try {
+      const saved = Number(window.localStorage.getItem('willai-source-pane-width'));
+      return Math.min(900, Math.max(280, saved || 450));
+    } catch { return 450; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem('willai-source-pane-width', String(sourcePaneWidth)); } catch { /* Optional persistence. */ }
+  }, [sourcePaneWidth]);
   useEffect(() => setSelectedResponseId(conversation.responses.at(-1)?.id ?? null), [conversation.id, conversation.responses.length]);
 
   const response = conversation.responses.find((item) => item.id === selectedResponseId) ?? conversation.responses.at(-1) ?? null;
@@ -992,13 +1000,49 @@ function NodeEditor({
     if (latest !== node.content) await onSave(node.id, latest);
   }
 
-  async function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      const content = editableContentToMarkdown(event.currentTarget);
+  function rangeToMarkdown(range: Range) {
+    const wrapper = document.createElement('div');
+    wrapper.appendChild(range.cloneContents());
+    return editableContentToMarkdown(wrapper);
+  }
+
+  async function splitNodeAtCaret(element: HTMLDivElement) {
+    const selection = window.getSelection();
+    const hasCaret = Boolean(selection && selection.rangeCount > 0 && element.contains(selection.getRangeAt(0).startContainer));
+    if (!selection || !hasCaret) {
+      const content = editableContentToMarkdown(element);
       draftRef.current = content;
       await onSave(node.id, content);
       await onAddSibling(node.id);
+      return;
+    }
+
+    const caret = selection.getRangeAt(0).cloneRange();
+    const beforeRange = document.createRange();
+    beforeRange.selectNodeContents(element);
+    beforeRange.setEnd(caret.startContainer, caret.startOffset);
+    const afterRange = document.createRange();
+    afterRange.selectNodeContents(element);
+    afterRange.setStart(caret.startContainer, caret.startOffset);
+
+    const before = rangeToMarkdown(beforeRange);
+    const after = rangeToMarkdown(afterRange);
+    draftRef.current = before;
+    await onSave(node.id, before);
+    await onAddSibling(node.id, after);
+  }
+
+  async function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (event.shiftKey) {
+        const content = editableContentToMarkdown(event.currentTarget);
+        draftRef.current = content;
+        await onSave(node.id, content);
+        await onAddSibling(node.id);
+      } else {
+        await splitNodeAtCaret(event.currentTarget);
+      }
       return;
     }
     if (event.key === 'Tab') {
@@ -1006,9 +1050,22 @@ function NodeEditor({
       await onMove(node.id, event.shiftKey ? 'outdent' : 'indent');
       return;
     }
-    if (event.altKey && event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       event.preventDefault();
       await onMove(node.id, event.key === 'ArrowUp' ? 'up' : 'down');
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      if (event.key === 'ArrowUp') {
+        if (children.length) {
+          event.preventDefault();
+          setCollapsed(true);
+        }
+      } else {
+        event.preventDefault();
+        if (children.length) setCollapsed(false);
+        else await onAddChild(node.id);
+      }
       return;
     }
     if (event.key === 'Escape') event.currentTarget.blur();

@@ -128,7 +128,7 @@ test('outline supports sibling insertion, indentation, outdent, and reordering',
 
     assert.equal(store.moveNode(second.id, 'indent').ok, true);
     let moved = store.getSnapshot().conversations[0].responses[0].nodes.find((node) => node.id === second.id);
-    assert.equal(moved.parentId, first.id);
+    assert.equal(moved.parentId, inserted.nodeId);
 
     assert.equal(store.moveNode(second.id, 'outdent').ok, true);
     moved = store.getSnapshot().conversations[0].responses[0].nodes.find((node) => node.id === second.id);
