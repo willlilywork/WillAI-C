@@ -108,3 +108,38 @@ test('source URLs are limited to supported HTTPS AI providers', () => {
   assert.throws(() => normaliseSourceUrl('http://chatgpt.com/c/abc'));
   assert.throws(() => normaliseSourceUrl('https://example.com/chat'));
 });
+
+
+test('outline supports sibling insertion, indentation, outdent, and reordering', () => {
+  const { directory, store } = makeStore();
+  try {
+    capture(store);
+    const response = store.getSnapshot().conversations[0].responses[0];
+    const first = response.nodes.find((node) => node.content === 'First paragraph.');
+    const second = response.nodes.find((node) => node.content === 'Second paragraph.');
+    assert.ok(first);
+    assert.ok(second);
+
+    const inserted = store.createSiblingNode(first.id, 'Inserted node.');
+    let roots = store.getSnapshot().conversations[0].responses[0].nodes
+      .filter((node) => !node.deletedAt && node.parentId === null)
+      .sort((a, b) => a.position - b.position);
+    assert.deepEqual(roots.map((node) => node.content), ['First paragraph.', 'Inserted node.', 'Second paragraph.']);
+
+    assert.equal(store.moveNode(second.id, 'indent').ok, true);
+    let moved = store.getSnapshot().conversations[0].responses[0].nodes.find((node) => node.id === second.id);
+    assert.equal(moved.parentId, first.id);
+
+    assert.equal(store.moveNode(second.id, 'outdent').ok, true);
+    moved = store.getSnapshot().conversations[0].responses[0].nodes.find((node) => node.id === second.id);
+    assert.equal(moved.parentId, null);
+
+    assert.equal(store.moveNode(second.id, 'up').ok, true);
+    roots = store.getSnapshot().conversations[0].responses[0].nodes
+      .filter((node) => !node.deletedAt && node.parentId === null)
+      .sort((a, b) => a.position - b.position);
+    assert.ok(roots.findIndex((node) => node.id === second.id) < roots.findIndex((node) => node.id === inserted.nodeId));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

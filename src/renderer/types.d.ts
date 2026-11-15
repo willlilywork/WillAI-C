@@ -172,6 +172,8 @@ declare global {
       updateNode(nodeId: string, content: string): Promise<{ok: boolean}>;
       setNodeContext(nodeId: string, enabled: boolean): Promise<{ok: boolean}>;
       createChildNode(responseId: string, parentId: string | null): Promise<{nodeId: string}>;
+      createSiblingNode(nodeId: string, content?: string): Promise<{nodeId: string}>;
+      moveNode(nodeId: string, direction: 'indent' | 'outdent' | 'up' | 'down'): Promise<{ok: boolean; parentId?: string | null}>;
       deleteNode(nodeId: string): Promise<{ok: boolean}>;
       setResponsePinned(responseId: string, pinned: boolean): Promise<{ok: boolean}>;
       createFolder(input: {name: string; parentId?: string | null; color?: string; icon?: string}): Promise<{folderId: string}>;

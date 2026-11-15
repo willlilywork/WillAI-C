@@ -631,6 +631,77 @@ class LocalStore {
     throw new Error('Response not found.');
   }
 
+  createSiblingNode(nodeId, content = '') {
+    const { conversation, response, node } = this.findNode(nodeId);
+    const siblings = (response.nodes || []).filter((item) => !item.deletedAt && (item.parentId || null) === (node.parentId || null)).sort((a, b) => a.position - b.position);
+    if (!siblings.some((item) => item.id === node.id)) throw new Error('Node is not present in its parent outline.');
+    const position = node.position + 1;
+    for (const sibling of siblings) if (sibling.position >= position) sibling.position += 1;
+    const timestamp = now();
+    const sequence = (response.nodes || []).reduce((max, item) => Math.max(max, Number(item.sequence) || 0), -1) + 1;
+    const value = cleanText(content);
+    const created = {
+      id: crypto.randomUUID(), parentId: node.parentId || null, content: value, initialContent: value,
+      position, sequence, nodeType: 'paragraph', headingLevel: null, listOrdered: false, listStart: 1,
+      listIndex: position, provenance: 'human-created', includeInModelContext: false,
+      createdAt: timestamp, updatedAt: timestamp, deletedAt: null,
+    };
+    response.nodes.push(created);
+    conversation.updatedAt = timestamp;
+    this.persist();
+    return { nodeId: created.id };
+  }
+
+  moveNode(nodeId, direction) {
+    const { conversation, response, node } = this.findNode(nodeId);
+    const nodes = (response.nodes || []).filter((item) => !item.deletedAt);
+    const parentId = (item) => item.parentId || null;
+    const previousParent = parentId(node);
+    const siblings = (id) => nodes.filter((item) => parentId(item) === (id || null)).sort((a, b) => a.position - b.position);
+    let nextParent = previousParent;
+
+    if (direction === 'up' || direction === 'down') {
+      const group = siblings(previousParent);
+      const index = group.findIndex((item) => item.id === node.id);
+      const target = group[index + (direction === 'up' ? -1 : 1)];
+      if (!target) return { ok: false, parentId: previousParent };
+      const position = node.position;
+      node.position = target.position;
+      target.position = position;
+    } else if (direction === 'indent') {
+      const group = siblings(previousParent);
+      const index = group.findIndex((item) => item.id === node.id);
+      const targetParent = group[index - 1];
+      if (!targetParent) return { ok: false, parentId: previousParent };
+      nextParent = targetParent.id;
+      node.parentId = nextParent;
+      node.position = siblings(nextParent).filter((item) => item.id !== node.id).length;
+    } else if (direction === 'outdent') {
+      if (!node.parentId) return { ok: false, parentId: null };
+      const parent = nodes.find((item) => item.id === node.parentId);
+      if (!parent) return { ok: false, parentId: previousParent };
+      nextParent = parentId(parent);
+      const targetGroup = siblings(nextParent).filter((item) => item.id !== node.id);
+      const parentIndex = targetGroup.findIndex((item) => item.id === parent.id);
+      if (parentIndex < 0) return { ok: false, parentId: previousParent };
+      const insertion = parentIndex + 1;
+      for (const sibling of targetGroup) if (sibling.position >= insertion) sibling.position += 1;
+      node.parentId = nextParent;
+      node.position = insertion;
+    } else {
+      throw new Error('Unsupported node movement.');
+    }
+
+    const normalise = (id) => siblings(id).sort((a, b) => a.position - b.position).forEach((item, index) => { item.position = index; });
+    normalise(previousParent);
+    if (nextParent !== previousParent) normalise(nextParent);
+    const timestamp = now();
+    node.updatedAt = timestamp;
+    conversation.updatedAt = timestamp;
+    this.persist();
+    return { ok: true, parentId: node.parentId || null };
+  }
+
   setResponsePinned(responseId, pinned) {
     for (const conversation of this.state.conversations) {
       const response = conversation.responses.find((item) => item.id === responseId);
@@ -681,6 +752,8 @@ class LocalStore {
       if (!childrenByParent.has(key)) childrenByParent.set(key, []);
       childrenByParent.get(key).push(node);
     }
+
+    for (const siblings of childrenByParent.values()) siblings.sort((a, b) => Number(a.position ?? a.sequence ?? 0) - Number(b.position ?? b.sequence ?? 0));
 
     const lines = [];
     const visit = (parentId, depth) => {

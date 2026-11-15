@@ -14,16 +14,24 @@ const { ipcRenderer } = require('electron');
 
   const seen = new WeakMap();
   const pending = new WeakMap();
+  const retries = new WeakMap();
+  const inFlight = new Map();
   let scanTimer = null;
   let lastStatusKey = '';
 
   const selectors = {
     chatgpt: [
-      'main [data-message-author-role="assistant"]',
-      '[data-message-author-role="assistant"]',
+      'main [data-message-author-role="assistant"] .markdown',
+      'main [data-message-author-role="assistant"] .prose',
+      'main [data-message-author-role="assistant"] [data-message-content]',
+      'main [data-testid^="conversation-turn-"] [data-message-author-role="assistant"] .markdown',
       'main [data-testid^="conversation-turn-"] .markdown',
       'main article[data-testid*="conversation-turn"] .markdown',
+      'main [data-message-author-role="assistant"]',
+      'main [data-testid^="conversation-turn-"]',
       'main .markdown.prose',
+      '[data-message-author-role="assistant"] .markdown',
+      '[data-message-author-role="assistant"]',
     ],
     claude: [
       '.font-claude-message',
@@ -241,23 +249,32 @@ const { ipcRenderer } = require('electron');
     return null;
   }
 
+  function isUserContent(element) {
+    if (element.closest('[data-message-author-role="user"], [data-testid*="user-message"], [aria-label*="user message" i]')) return true;
+    const roleRoot = element.closest('[data-message-author-role]');
+    return Boolean(roleRoot && (roleRoot.getAttribute('data-message-author-role') || '').toLowerCase() !== 'assistant');
+  }
+
   function collectCandidates() {
+    const candidates = new Set();
     for (const selector of selectors[provider]) {
-      const matches = Array.from(document.querySelectorAll(selector)).filter((element) => {
-        if (!(element instanceof HTMLElement)) return false;
-        if (element.closest('[data-message-author-role="user"], [data-testid*="user-message"]')) return false;
-        const role = (element.getAttribute('data-message-author-role') || '').toLowerCase();
+      let matches = [];
+      try { matches = Array.from(document.querySelectorAll(selector)); } catch { continue; }
+      for (const element of matches) {
+        if (!(element instanceof HTMLElement) || !element.isConnected || ignored(element) || isUserContent(element)) continue;
         const testId = (element.getAttribute('data-testid') || '').toLowerCase();
         const label = (element.getAttribute('aria-label') || '').toLowerCase();
-        if (role === 'user' || testId.includes('human') || label.includes('user message')) return false;
-        return true;
-      });
-      const outermost = matches.filter((element) =>
-        !matches.some((other) => other !== element && other.contains(element)),
-      );
-      if (outermost.length) return outermost;
+        if (testId.includes('human') || label.includes('user message')) continue;
+        let body = element;
+        if (provider === 'chatgpt' && !element.matches('.markdown, .prose, [data-message-content]')) {
+          const preferred = element.querySelector('.markdown, .prose, [data-message-content]');
+          if (preferred instanceof HTMLElement && !isUserContent(preferred)) body = preferred;
+        }
+        if (markdownOf(body).length > 0) candidates.add(body);
+      }
     }
-    return [];
+    const all = Array.from(candidates);
+    return all.filter((element) => !all.some((other) => other !== element && element.contains(other)));
   }
   function scan() {
     const elements = collectCandidates();
@@ -290,15 +307,22 @@ const { ipcRenderer } = require('electron');
         pending.delete(element);
         if (stableText.length < 1 || seen.get(element) === stableHash) return;
 
-        seen.set(element, stableHash);
-        ipcRenderer.send('willai:provider-response', {
-          provider,
-          sourceMessageId: stableMessageId(element),
-          text: stableText,
-        });
-        // The main process reports success only after LocalStore.capture completes.
-        // Do not publish a provisional success here: it could arrive after and mask
-        // a persistence error from the main process.
+        const captureId = window.crypto?.randomUUID?.() || String(Date.now()) + '-' + simpleHash(stableText);
+        pending.set(element, stableHash);
+        inFlight.set(captureId, { element, hash: stableHash });
+        ipcRenderer.send('willai:provider-response', { captureId, provider, sourceMessageId: stableMessageId(element), text: stableText });
+
+        setTimeout(() => {
+          const waiting = inFlight.get(captureId);
+          if (!waiting) return;
+          inFlight.delete(captureId);
+          pending.delete(waiting.element);
+          const attempts = retries.get(waiting.element) || 0;
+          if (attempts < 3) {
+            retries.set(waiting.element, attempts + 1);
+            setTimeout(scheduleScan, 1200 * (attempts + 1));
+          }
+        }, 10000);
       }, 1400);
     }
 
@@ -335,6 +359,24 @@ const { ipcRenderer } = require('electron');
   } else {
     start();
   }
+
+  ipcRenderer.on('willai:provider-capture-result', (_event, result) => {
+    const waiting = inFlight.get(result?.captureId);
+    if (!waiting) return;
+    inFlight.delete(result.captureId);
+    pending.delete(waiting.element);
+    if (result.ok) {
+      seen.set(waiting.element, waiting.hash);
+      retries.delete(waiting.element);
+      return;
+    }
+    const attempts = retries.get(waiting.element) || 0;
+    reportStatus('capture-error', 1, 'The answer was detected but could not be saved: ' + String(result.error || 'unknown error'));
+    if (attempts < 3) {
+      retries.set(waiting.element, attempts + 1);
+      setTimeout(scheduleScan, 1200 * (attempts + 1));
+    }
+  });
 
   function insertTextIntoComposer(text) {
     const composerSelectors = provider === 'chatgpt'

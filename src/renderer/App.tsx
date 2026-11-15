@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import MarkdownIt from 'markdown-it';
 import './markdown.css';
 import WorkspaceTools from './WorkspaceTools';
@@ -49,6 +49,12 @@ function App() {
   const [address, setAddress] = useState('');
   const [search, setSearch] = useState('');
   const [browserOpen, setBrowserOpen] = useState(true);
+  const [panelSizes, setPanelSizes] = useState(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem('willai-panel-sizes') || '{}');
+      return { sidebar: Math.min(360, Math.max(170, Number(saved.sidebar) || 232)), browser: Math.min(900, Math.max(250, Number(saved.browser) || 430)) };
+    } catch { return { sidebar: 232, browser: 430 }; }
+  });
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [workspaceView, setWorkspaceView] = useState<'overview' | 'prompts' | 'notes' | 'library'>('overview');
   const [folderFilter, setFolderFilter] = useState<string | null>(null);
@@ -129,6 +135,10 @@ function App() {
       height: rect.height,
     });
   }, [browserOpen]);
+
+  useEffect(() => {
+    try { window.localStorage.setItem('willai-panel-sizes', JSON.stringify(panelSizes)); } catch { /* Optional persistence. */ }
+  }, [panelSizes]);
 
   useEffect(() => {
     let alive = true;
@@ -316,7 +326,7 @@ function App() {
         </button>
       )}
 
-      <div className={'workspace-layout' + (browserOpen ? ' browser-visible' : '')}>
+      <div className={'workspace-layout' + (browserOpen ? ' browser-visible' : '')} style={{ '--sidebar-width': `${panelSizes.sidebar}px`, '--browser-width': `${panelSizes.browser}px` } as CSSProperties}>
         <aside className="workspace-sidebar">
           <div className="sidebar-section">
             <div className="sidebar-kicker">WORKSPACE</div>
@@ -429,6 +439,8 @@ function App() {
             <div><strong>Local workspace</strong><small>Your captured data stays on this device.</small></div>
           </div>
         </aside>
+        <ResizeHandle label="Resize workspace sidebar" value={panelSizes.sidebar} min={170} max={360}
+          onChange={(value) => setPanelSizes((current) => ({ ...current, sidebar: value }))} />
 
         <main className="workspace-main">
           {workspaceView === 'prompts' ? (
@@ -460,6 +472,10 @@ function App() {
           )}
           {loading && <div className="workspace-loading">Initialising your workspace…</div>}
         </main>
+        {browserOpen && (
+          <ResizeHandle label="Resize integrated browser" value={panelSizes.browser} min={250} max={900} reverse
+            onChange={(value) => setPanelSizes((current) => ({ ...current, browser: value }))} />
+        )}
 
         {browserOpen ? (
           <section className="browser-dock" aria-label="Integrated browser">
@@ -516,6 +532,41 @@ function App() {
       </div>
     </div>
   );
+}
+
+function ResizeHandle({
+  label, value, min, max, reverse = false, onChange,
+}: {
+  label: string; value: number; min: number; max: number; reverse?: boolean; onChange: (value: number) => void;
+}) {
+  const drag = useRef<{ pointerId: number; startX: number; startValue: number } | null>(null);
+  function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    drag.current = { pointerId: event.pointerId, startX: event.clientX, startValue: value };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const start = drag.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    const delta = event.clientX - start.startX;
+    onChange(Math.min(max, Math.max(min, Math.round(start.startValue + (reverse ? -delta : delta)))));
+  }
+  function stopDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    if (drag.current?.pointerId === event.pointerId) drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+  function onKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const direction = event.key === 'ArrowRight' ? 1 : -1;
+    onChange(Math.min(max, Math.max(min, value + direction * (reverse ? -16 : 16))));
+  }
+  return <div className="panel-resizer" role="separator" aria-orientation="vertical" aria-label={label}
+    aria-valuemin={min} aria-valuemax={max} aria-valuenow={Math.round(value)} tabIndex={0}
+    title={label + ' · drag to resize'} onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+    onPointerUp={stopDrag} onPointerCancel={stopDrag} onLostPointerCapture={() => { drag.current = null; }}
+    onKeyDown={onKeyDown} />;
 }
 
 function FolderSidebarItem({
@@ -707,15 +758,31 @@ function ConversationWorkbench({
 }) {
   const [selectedResponseId, setSelectedResponseId] = useState(conversation.responses.at(-1)?.id ?? null);
   const [referencesOpen, setReferencesOpen] = useState(false);
+  const [sourcePaneWidth, setSourcePaneWidth] = useState(450);
   useEffect(() => setSelectedResponseId(conversation.responses.at(-1)?.id ?? null), [conversation.id, conversation.responses.length]);
 
   const response = conversation.responses.find((item) => item.id === selectedResponseId) ?? conversation.responses.at(-1) ?? null;
   const sharedCount = conversation.responses.flatMap((item) => item.nodes).filter((node) => node.includeInModelContext && !node.deletedAt).length;
   const references = conversation.referenceConversationIds || [];
 
+  function focusNode(nodeId: string) {
+    window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`.node-content-editable[data-node-id="${nodeId}"]`)?.focus());
+  }
   async function addNode(responseId: string, parentId: string | null) {
-    await window.willai.createChildNode(responseId, parentId);
+    const result = await window.willai.createChildNode(responseId, parentId);
     await onRefresh();
+    focusNode(result.nodeId);
+  }
+  async function addSibling(nodeId: string, content = '') {
+    const result = await window.willai.createSiblingNode(nodeId, content);
+    await onRefresh();
+    focusNode(result.nodeId);
+  }
+  async function moveNode(nodeId: string, direction: 'indent' | 'outdent' | 'up' | 'down') {
+    const result = await window.willai.moveNode(nodeId, direction);
+    if (!result.ok) return;
+    await onRefresh();
+    focusNode(nodeId);
   }
   async function saveNode(nodeId: string, content: string) {
     await window.willai.updateNode(nodeId, content);
@@ -815,7 +882,7 @@ function ConversationWorkbench({
           </div>
         </section>
         {response && (
-          <div className="response-editor-layout">
+          <div className="response-editor-layout" style={{ "--source-pane-width": `${sourcePaneWidth}px` } as CSSProperties}>
             <section className="original-response-card">
               <div className="response-card-heading"><span className="section-eyebrow">SOURCE RECORD</span><span className="read-only-label">Original response · read only</span></div>
               <MarkdownContent content={response.originalContent} className="source-markdown" />
@@ -824,17 +891,18 @@ function ConversationWorkbench({
                 <button type="button" onClick={() => void window.willai.copyText(response.originalContent.replace(/[#*_~>|-]/g, '')).then(() => onNotice('Plain text copied.'))}>Copy plain text</button>
               </div>
             </section>
+            <ResizeHandle label="Resize original response and node editor" value={sourcePaneWidth} min={280} max={900} onChange={setSourcePaneWidth} />
             <section className="working-nodes-section">
               <div className="working-nodes-heading">
-                <div><span className="section-eyebrow">YOUR EDITABLE CONTENT</span><h2>Working nodes</h2></div>
-                <button type="button" className="add-node-button" onClick={() => void addNode(response.id, null)}>＋ Add node</button>
+                <div><span className="section-eyebrow">YOUR EDITABLE CONTENT</span><h2>Node outline</h2></div>
+                <button type="button" className="add-node-button" onClick={() => void addNode(response.id, null)}>＋ New node</button>
               </div>
               <div className="node-list">
                 {response.nodes.filter((node) => !node.deletedAt && !node.parentId).sort((a, b) => a.position - b.position).map((node) => (
-                  <NodeEditor key={node.id} node={node} allNodes={response.nodes} onSave={saveNode} onShared={setShared} onAddChild={(parentId) => addNode(response.id, parentId)} onDelete={deleteNode} />
+                  <NodeEditor key={node.id} node={node} allNodes={response.nodes} onSave={saveNode} onShared={setShared} onAddChild={(parentId) => addNode(response.id, parentId)} onAddSibling={addSibling} onMove={moveNode} onDelete={deleteNode} />
                 ))}
                 {!response.nodes.some((node) => !node.deletedAt && !node.parentId) && (
-                  <div className="no-nodes">No working nodes yet. Add one to start editing or organising this response.</div>
+                  <div className="no-nodes">No nodes yet. Create one, press Enter for a sibling, and use Tab / Shift+Tab to structure the outline.</div>
                 )}
               </div>
             </section>
@@ -844,91 +912,148 @@ function ConversationWorkbench({
     </div>
   );
 }
+function inlineDomToMarkdown(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) return String(node.textContent || '').replace(/\u00a0/g, ' ');
+  if (!(node instanceof HTMLElement)) return '';
+  const tag = node.tagName;
+  if (tag === 'BR') return '\n';
+  const children = Array.from(node.childNodes).map(inlineDomToMarkdown).join('');
+  if (tag === 'STRONG' || tag === 'B') return '**' + children + '**';
+  if (tag === 'EM' || tag === 'I') return '*' + children + '*';
+  if (tag === 'DEL' || tag === 'S' || tag === 'STRIKE') return '~~' + children + '~~';
+  if (tag === 'CODE') return '`' + children.replace(/`/g, '\\`') + '`';
+  if (tag === 'A') {
+    const href = node.getAttribute('href');
+    return href ? '[' + children + '](' + href + ')' : children;
+  }
+  if (tag === 'IMG') return '![' + (node.getAttribute('alt') || '') + '](' + (node.getAttribute('src') || '') + ')';
+  if (tag === 'SUB') return '~' + children + '~';
+  if (tag === 'SUP') return '^' + children + '^';
+  return children;
+}
+
+function blockDomToMarkdown(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) return String(node.textContent || '').trim();
+  if (!(node instanceof HTMLElement)) return '';
+  const tag = node.tagName;
+  if (tag === 'BR') return '\n';
+  if (tag === 'PRE') {
+    const code = node.querySelector('code') || node;
+    const language = String(code.className || '').match(/language-([a-z0-9_+#.-]+)/i)?.[1] || '';
+    return '```' + language + '\n' + (code.textContent || '').replace(/\n+$/, '') + '\n```';
+  }
+  if (tag === 'UL' || tag === 'OL') {
+    return Array.from(node.children).filter((item) => item.tagName === 'LI').map((item, index) =>
+      (tag === 'OL' ? String(index + 1) + '. ' : '- ') + inlineDomToMarkdown(item),
+    ).join('\n');
+  }
+  if (tag === 'BLOCKQUOTE') {
+    const body = Array.from(node.childNodes).map(blockDomToMarkdown).filter(Boolean).join('\n');
+    return body.split('\n').map((line) => line ? '> ' + line : '>').join('\n');
+  }
+  if (/^H[1-6]$/.test(tag)) return '#'.repeat(Number(tag.slice(1))) + ' ' + inlineDomToMarkdown(node);
+  if (tag === 'HR') return '---';
+  if (tag === 'P' || tag === 'DIV') {
+    return Array.from(node.childNodes).map((child) =>
+      child instanceof HTMLElement && ['P', 'DIV', 'UL', 'OL', 'PRE', 'BLOCKQUOTE'].includes(child.tagName)
+        ? blockDomToMarkdown(child)
+        : inlineDomToMarkdown(child),
+    ).join('');
+  }
+  return inlineDomToMarkdown(node);
+}
+
+function editableContentToMarkdown(element: HTMLElement): string {
+  return Array.from(element.childNodes).map(blockDomToMarkdown).filter(Boolean).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function NodeEditor({
-  node,
-  allNodes,
-  onSave,
-  onShared,
-  onAddChild,
-  onDelete,
+  node, allNodes, onSave, onShared, onAddChild, onAddSibling, onMove, onDelete,
 }: {
   node: WorkingNode;
   allNodes: WorkingNode[];
   onSave: (id: string, content: string) => Promise<void>;
   onShared: (id: string, enabled: boolean) => Promise<void>;
   onAddChild: (parentId: string) => Promise<void>;
+  onAddSibling: (nodeId: string, content?: string) => Promise<void>;
+  onMove: (nodeId: string, direction: 'indent' | 'outdent' | 'up' | 'down') => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState(node.content);
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const draftRef = useRef(node.content);
+  const [collapsed, setCollapsed] = useState(false);
   const children = allNodes.filter((item) => item.parentId === node.id && !item.deletedAt).sort((a, b) => a.position - b.position);
-  const dirty = draft !== node.content;
+  const rendered = useMemo(() => ({ __html: markdownRenderer.render(node.content || '') }), [node.content]);
 
-  useEffect(() => {
-    setDraft(node.content);
-    setEditing(false);
-  }, [node.content]);
+  useEffect(() => { draftRef.current = node.content; }, [node.content]);
 
-  async function save() {
-    setSaving(true);
-    try {
-      await onSave(node.id, draft);
-      setEditing(false);
-    } finally {
-      setSaving(false);
-    }
+  async function saveDraft() {
+    const latest = draftRef.current;
+    if (latest !== node.content) await onSave(node.id, latest);
   }
 
+  async function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      const content = editableContentToMarkdown(event.currentTarget);
+      draftRef.current = content;
+      await onSave(node.id, content);
+      await onAddSibling(node.id);
+      return;
+    }
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      await onMove(node.id, event.shiftKey ? 'outdent' : 'indent');
+      return;
+    }
+    if (event.altKey && event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault();
+      await onMove(node.id, event.key === 'ArrowUp' ? 'up' : 'down');
+      return;
+    }
+    if (event.key === 'Escape') event.currentTarget.blur();
+  }
+
+  const marker = node.nodeType === 'heading'
+    ? 'H'
+    : node.nodeType === 'list-item'
+      ? (node.listOrdered ? String((node.listIndex ?? node.position) + (node.listStart || 1)) + '.' : '•')
+      : '•';
+
   return (
-    <div className={'node-entry' + (node.parentId ? ' nested' : '')}>
-      <div className="node-editor-card">
-        <div className="node-editor-top">
-          <span className="node-type">{node.provenance === 'captured' ? 'CAPTURED NODE' : node.provenance === 'human-edited' ? 'HUMAN EDITED' : 'USER NODE'}</span>
-          <div className="node-top-actions">
-            <button type="button" onClick={() => {
-              if (editing) {
-                setDraft(node.content);
-                setEditing(false);
-              } else {
-                setEditing(true);
-              }
-            }}>{editing ? 'Cancel' : 'Edit'}</button>
-            <button type="button" onClick={() => void onDelete(node.id)}>Delete</button>
-          </div>
-        </div>
-
-        {editing ? (
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            rows={Math.max(3, Math.min(12, draft.split('\n').length + 1))}
-            placeholder="Edit this Markdown node…"
-          />
-        ) : (
-          <div
-            className="node-markdown"
-            data-node-type={node.nodeType || 'paragraph'}
-            data-list-ordered={node.listOrdered ? 'true' : 'false'}
-            data-position={(node.listIndex ?? node.position) + (node.listStart || 1)}
-          >
-            <MarkdownContent content={node.content} className="node-markdown-body" />
-          </div>
-        )}
-
-        <div className="node-editor-actions">
-          <button type="button" className={node.includeInModelContext ? 'shared' : ''} onClick={() => void onShared(node.id, !node.includeInModelContext)}>
-            <span className="sharing-dot" />{node.includeInModelContext ? 'Included in model context' : 'Keep private'}
-          </button>
-          <div>
-            {editing && dirty && <button type="button" className="save-node" disabled={saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save changes'}</button>}
-            <button type="button" onClick={() => void onAddChild(node.id)}>＋ Child node</button>
-          </div>
+    <div className={'node-entry' + (node.parentId ? ' nested' : '')} data-node-entry={node.id}>
+      <div className="node-line">
+        <button type="button" className={'node-disclosure' + (children.length ? ' has-children' : '')}
+          onClick={() => children.length && setCollapsed((value) => !value)}
+          aria-label={children.length ? (collapsed ? 'Expand child nodes' : 'Collapse child nodes') : 'Node'}
+          aria-expanded={children.length ? !collapsed : undefined}
+          title={children.length ? (collapsed ? 'Expand' : 'Collapse') : node.nodeType || 'Node'}>
+          {children.length ? (collapsed ? '▸' : '▾') : marker}
+        </button>
+        <div ref={editorRef} className="node-content-editable" data-node-id={node.id}
+          data-node-type={node.nodeType || 'paragraph'} contentEditable suppressContentEditableWarning
+          spellCheck role="textbox" aria-multiline="true" aria-label="Working node"
+          data-placeholder="Type here…" dangerouslySetInnerHTML={rendered}
+          onInput={(event) => { draftRef.current = editableContentToMarkdown(event.currentTarget); }}
+          onBlur={() => { void saveDraft(); }}
+          onKeyDown={(event) => { void handleKeyDown(event); }} />
+        <span className="node-provenance" title={node.provenance}>
+          {node.provenance === 'captured' ? 'source' : node.provenance === 'human-edited' ? 'edited' : 'user'}
+        </span>
+        <div className="node-quick-actions">
+          <button type="button" title="Add sibling node" onClick={() => void onAddSibling(node.id)}>＋</button>
+          <button type="button" title="Add child node" onClick={() => void onAddChild(node.id)}>↳</button>
+          <button type="button" className={node.includeInModelContext ? 'shared' : ''}
+            title={node.includeInModelContext ? 'Remove from model context' : 'Include in model context'}
+            onClick={() => void onShared(node.id, !node.includeInModelContext)}>{node.includeInModelContext ? '◉' : '○'}</button>
+          <button type="button" className="node-delete" title="Delete node and descendants" onClick={() => void onDelete(node.id)}>×</button>
         </div>
       </div>
-      {children.length > 0 && (
+      {children.length > 0 && !collapsed && (
         <div className="nested-nodes">
-          {children.map((child) => <NodeEditor key={child.id} node={child} allNodes={allNodes} onSave={onSave} onShared={onShared} onAddChild={onAddChild} onDelete={onDelete} />)}
+          {children.map((child) => <NodeEditor key={child.id} node={child} allNodes={allNodes}
+            onSave={onSave} onShared={onShared} onAddChild={onAddChild} onAddSibling={onAddSibling}
+            onMove={onMove} onDelete={onDelete} />)}
         </div>
       )}
     </div>
