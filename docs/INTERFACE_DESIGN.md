@@ -882,3 +882,77 @@ Required review screens:
 10. Global Search results.
 
 A screen is not approved because it compiles. It must be reviewed at realistic content density, at the target window size, with keyboard, pointer, loading, empty, and error states.
+
+---
+
+## 16. Design direction update — 15 November 2026
+
+This update reflects the approved direction for the next prototype revision. It supersedes earlier statements in this document wherever they conflict with the following requirements. The earlier Anylife AI dashboard image is a visual reference only; Anylife AI was a prior personal design, not an existing product or a source of WillAI-C feature names.
+
+### 16.1 Default entry point: New Conversation
+
+The main WillAI-C window opens directly to **New Conversation**. This is the primary entry point, not a dashboard that the user must pass through first. Home remains available as a secondary workspace overview.
+
+The New Conversation canvas contains:
+- A large, central prompt composer.
+- A visible provider/model selector.
+- Relevant composer controls such as attachments, web search, and tools, shown as available only when implemented.
+- A clear send action.
+- A compact indication of the selected provider session and connection state.
+
+The composer must not require the user to open the provider website first. Selecting a provider chooses the signed-in provider account/session that WillAI-C will use for the request.
+
+### 16.2 Intended request and response flow
+
+The target interaction is:
+
+1. The user writes a request in the WillAI-C New Conversation composer.
+2. The user selects a supported provider/model.
+3. WillAI-C routes the request to the selected provider using the corresponding signed-in account/session through the integrated browser infrastructure, without switching the main workspace to the provider page.
+4. WillAI-C detects the completed provider response, captures its content, and persists it with source and provider metadata.
+5. The response appears inside the same WillAI-C conversation as one or more structured, addressable response nodes.
+6. The user continues working with those nodes in the conversation and Response Workbench.
+
+The provider website remains an execution surface in the background, not the main visual interface. The Browser workspace remains available when the user explicitly needs to inspect or interact with the provider page.
+
+This describes the intended product behavior, not a claim that the HTML prototype performs provider authentication, request routing, response capture, or persistence. The prototype must label simulated states honestly.
+
+### 16.3 Dedicated Conversations Tree canvas
+
+Add **Conversations Tree** as a separate first-class workspace destination. It is a navigable canvas for the message graph of a conversation, not a replacement for the readable conversation timeline.
+
+The canvas should:
+- Represent individual user and assistant messages as selectable nodes.
+- Connect messages along the current conversation path.
+- Display alternate conversation paths as separate branches.
+- Provide a **Branch in new chat** action on an eligible message node.
+- Create an alternate path from the selected message without modifying the original path.
+- Support pan/scroll and zoom controls, including a fit/reset action.
+- Distinguish the current path from alternate paths visually. Use a warm yellow marker for the current path and a quieter neutral treatment for alternate paths, consistent with the supplied tree reference.
+
+When a provider supports a native branching action such as ChatGPT's “Branch in new chat,” WillAI-C should preserve the source message identity and provider conversation/branch identifiers so the canvas can represent the resulting relationship. The HTML prototype may simulate branch creation locally; production behavior requires provider-specific integration and stable conversation/message IDs.
+
+A conversation with no branches should display a single linear path. Do not invent alternate branches in the normal initial state.
+
+### 16.4 Preserve the other workspaces
+
+The change to New Conversation as the entry point does not remove or replace the existing Home, Work/library, conversation timeline, Response Workbench, Browser, Prompts, Notes, Media, search, or optional context inspector. They remain separate workspaces in the existing shell. Update their colors and shared visual tokens, but do not force their content or terminology to match the earlier Anylife AI mockup.
+
+### 16.5 Updated visual direction
+
+Use a deep navy/blue-black foundation with dark blue elevated panels. Use blue and violet as the main interface accents, with cyan as a restrained supporting accent. Gradients may be used for the brand mark, primary action, and New Conversation hero treatment; they should not be applied indiscriminately to every panel. Keep text contrast high and preserve readable typography and spacing. Use warm yellow sparingly for the current tree path and selected-node indicator.
+
+The supplied Anylife AI image informs the palette, contrast, and visual rhythm only. Do not copy its labels, navigation taxonomy, feature names, or implied product structure.
+
+### 16.6 Updated navigation and acceptance criteria
+
+The global rail includes a direct **New Conversation** action and a dedicated **Conversations Tree** destination, alongside the existing workspaces. Home remains available but is no longer the default startup view.
+
+Acceptance criteria for this direction:
+- A fresh prototype launch opens New Conversation.
+- The user can choose a provider, enter a prompt, and see the intended in-app response destination without opening the Browser workspace.
+- The prototype clearly identifies the result as simulated and confirms that no real provider request was sent.
+- A newly submitted mock conversation seeds its own linear tree path.
+- Branch in new chat adds a distinct alternate path from the selected message while leaving the current path intact.
+- The original Home, Work, Conversation, Response Workbench, Browser, Prompts, Notes, Media, and Model Context experiences remain reachable.
+- No production Electron/provider integration is implied by the prototype.
