@@ -32,6 +32,11 @@ const api = {
     ipcRenderer.on('willai:snapshot-changed', listener);
     return () => ipcRenderer.removeListener('willai:snapshot-changed', listener);
   },
+  onCaptureError: (callback) => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('willai:capture-error', listener);
+    return () => ipcRenderer.removeListener('willai:capture-error', listener);
+  },
   onContextInsertResult: (callback) => {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on('willai:context-insert-result', listener);
