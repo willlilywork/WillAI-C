@@ -11,7 +11,7 @@
 - PR #1 was merged into `main` on 2026-11-15. Merge commit: `2004144618e712a3548038e118eaa1499ddc940d`.
 - PR #10 (0.3.0 folder organization and bulk actions) was squash-merged into the integration branch as `7752ec64aef46ad869d7f8b89047779aedd81c72` and is included in `main` through PR #1.
 - PR #9 (background provider submission) and PR #8 (SQLite/FTS5) are already included in the integration branch.
-- PR #11 (`fix/provider-submission-and-capture`) is the current provider reliability repair. It is targeted at `main` and includes the 0.3.1 fixes described below.
+- PR #11 — [WillAI-C 0.3.1 provider reliability repair](https://github.com/willlilywork/WillAI-C/pull/11) — was squash-merged into `main` as `05f1e35d870d8da1a28a18e4387a64b3ff4674ad`.
 - Do not create another parallel implementation from the old initial snapshot. Continue from `main`, which is the acceptance and source-of-truth branch. The integration branch is now one merge commit behind `main`.
 
 ## Product and architecture — preserve these decisions
@@ -68,7 +68,7 @@ Read `docs/ARCHITECTURE.md` for module/security boundaries and `docs/PRODUCT_SCO
 - Move selected conversations to a folder or Unfiled as one operation.
 - Added store regression tests for hierarchy cycles and batch actions, plus renderer/IPC wiring checks.
 
-## Provider reliability repair — 0.3.1
+## Provider reliability repair — 0.3.1 (merged in PR #11)
 
 The repeated Send/capture failures were traced to application-side weaknesses, not just to a missing selector:
 
@@ -87,8 +87,8 @@ The repeated Send/capture failures were traced to application-side weaknesses, n
 - Correct whitespace normalization for non-breaking spaces and carriage returns.
 
 ### Verification on the repair branch
-GitHub Actions run #121 passed on repair head `26f59c21b0836532edcee2101af0c1aab56e0062`:
-- `npm test`, including mocked CDP input/fallback and provider-preload DOM fixtures for ChatGPT and Claude.
+GitHub Actions run #125 passed on PR #11 head `3903344c57d718798b486175f764ccc5764b07a4`:
+- `npm test`, including mocked CDP input/fallback and provider-preload DOM fixtures for ChatGPT, Claude, and DeepSeek.
 - `npm run typecheck`.
 - `npm run build`.
 - Electron main/preload syntax checks.
@@ -97,24 +97,21 @@ These tests validate the app-side bridge and representative DOM contract; they d
 
 ## Verification state
 
-GitHub Actions run #106 passed on PR #10 head `e9284bdb6060c455c69600dc62335ac32afd2175`:
-- `npm test`
+### CI on the repair change
+GitHub Actions run #125 passed on PR #11 head `3903344c57d718798b486175f764ccc5764b07a4`:
+- `npm test` — includes mocked CDP input and fallback, complete-prompt validation, plus ChatGPT, Claude, and DeepSeek response DOM fixtures.
 - `npm run typecheck`
 - `npm run build`
 - Electron main/preload syntax checks
 
-Post-merge run #108 passed on `7752ec64aef46ad869d7f8b89047779aedd81c72`. Run #110 passed on the subsequent integration-branch documentation update `6035de7eb1b0634f3b2f8d68e6d037074a9fcc53`.
+### CI on main
+PR #11 was squash-merged into `main` as `05f1e35d870d8da1a28a18e4387a64b3ff4674ad`.
+- Main Linux CI run #126 completed successfully on that exact commit.
+- Windows x64 build run #47 was triggered by the same `main` push. At the time of this handoff update, its automated tests, typecheck, renderer build, Electron syntax checks, and SQLite Electron rebuild had passed; the Windows installer packaging step was still running. Do not link the previous 0.3.0 installer as the 0.3.1 build.
 
-PR #1 integrated the complete rebuild into `main` with merge commit `2004144618e712a3548038e118eaa1499ddc940d`. At the time of this update, the GitHub integration did not expose the push-triggered Actions run for this merge commit, so the `main` push result must be checked before recording main-branch CI as passed. The preceding integration-branch code and build checks passed; this does not substitute for the main acceptance run.
+### Verification boundary
+The automated tests execute the application-side provider preload and IPC path against representative DOM fixtures. They do not authenticate with an actual private provider account or test remote service availability/rate limits. This does not negate the code-path fixes above; it defines what the local CI environment can and cannot prove.
 
-### Still requires real runtime verification
-These are not proven by tests or packaging alone:
-1. Send prompts through current signed-in ChatGPT, Claude, and DeepSeek accounts.
-2. Confirm each provider accepts the request, finishes generation, and the completed response is captured once under the correct conversation/provider.
-3. Compare captured content with the provider's own Copy output, including headings, nested lists, tables, code, links, citations, and rich content.
-4. Install and launch the packaged Windows build; verify sign-in/session persistence, SQLite restart behavior, and legacy JSON migration with existing data.
-
-Do not claim these tests passed without an actual run in the packaged app.
 
 ## Product-scope items still outstanding
 
