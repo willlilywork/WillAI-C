@@ -2,28 +2,28 @@
 
 ## Product definition
 
-**WillAI-C is a workspace-centered desktop application built on an integrated Chromium browser engine.** Chromium is the runtime and web-content engine; it is not the application's shell or the dominant interface. The WillAI-C workspace is the central interface for conversations, Original Responses, Working Nodes, prompts, notes, search, and other work. Browser pages are integrated surfaces managed by the workspace and can be docked or focused without replacing it.
+**WillAI-C is a workspace-centered native Windows desktop application implemented in Rust.** Its main interface is a native WinUI 3 workspace. Microsoft Edge WebView2 is embedded as a native control inside the workspace to provide access to signed-in AI-provider sessions and ordinary websites. The browser is a managed work surface, not the application shell or a separate floating window.
 
-WillAI-C does not require provider API keys for its browser-based AI integrations. It works with the user's existing signed-in web accounts. Provider responses must become visible, retrievable workspace objects while preserving the Original Response and controlling what is included in later model context.
+WillAI-C does not require provider API keys for its browser-based AI integrations. It is intended to work with the user's existing signed-in web accounts. Provider responses must become visible, retrievable workspace objects while preserving the Original Response and controlling what is included in later model context.
 
 **WillAI-E Extension is a separate member of the WillAI product family.** It is the Chrome and Firefox extension that adds WillAI features on top of those browsers. It is not part of the WillAI-C application, and WillAI-C does not depend on an extension or a localhost extension bridge.
 
-## Platform and boundary
+## Platform and implementation boundary
 
-- Browser engine: the Chromium build bundled with Electron. This is a Chromium-based browser application, not a launcher for the separately installed Google Chrome executable.
-- Browser pages run in their own web contents and persistent browser session.
-- The WillAI-C workspace is the primary application interface; browser tabs and navigation are integrated controls within it.
-- Browser WebContents must be bounded to the browser surface and must never cover the workspace navigation, central work canvas, or app controls.
-- Captured responses are first-class workspace records, not content shown only in a browser page or an optional secondary panel.
-- Provider-specific integration is internal to WillAI-C. Provider page integration must not grant a website access to Node.js or Electron APIs.
-- WillAI-C's local features work without a WillAI cloud account. Features explicitly requiring sync, public sharing, community voting, paid content, or storefronts need separate backend services.
-- No feature in this register should be represented as implemented merely because it appears in the product specification. Implementation status is tracked in the repository's issues and release plan.
+- Application source language: Rust (edition 2024).
+- Native UI: Microsoft's `windows-reactor` library over WinUI 3.
+- Embedded browser: Microsoft's `windows-webview` library using the WebView2 control inside the Reactor native view tree.
+- Initial supported target: Windows 10/11 x64.
+- No Electron, Node.js, React, TypeScript, Vite, npm-based desktop renderer, or independent browser window is part of the new implementation.
+- Remote provider websites are untrusted content. Their HTML/CSS/JavaScript is rendered by WebView2; it does not become WillAI-C application code.
+- WillAI-C local features must work without a WillAI cloud account. Features explicitly requiring sync, public sharing, community voting, paid content, or storefronts need separate backend services.
+- Every capability below is a product requirement, not an assertion that it is already implemented. Implementation status is recorded separately in the continuation document and verified against code and tests.
 
 ## Feature register
 
 ### 1. Browser foundation
 
-- Chromium browser embedded as the core runtime of WillAI-C.
+- Microsoft Edge WebView2 (Chromium) embedded as a native WinUI 3 control inside the WillAI-C workspace view tree.
 - Multi-tab browsing, navigation, address/search bar, back/forward/reload, new tabs, and tab management.
 - Persistent browser profile for website sign-ins, cookies, cache, and local site data.
 - Browser history, downloads, site permissions, and popup handling.
@@ -125,6 +125,8 @@ WillAI-C does not require provider API keys for its browser-based AI integration
 - **Enhanced GPT Store:** discover more than 100,000 Custom GPTs and try them with one click.
 - **Newsletter Archive:** access and read previous newsletter versions.
 
+
+
 ## Pro plan capabilities
 
 The following items are explicitly designated as Pro capabilities in the supplied product definition. They must be enforced by a centralized entitlement system, not by hiding controls only in the UI.
@@ -139,99 +141,27 @@ The following items are explicitly designated as Pro capabilities in the supplie
 - **Advanced Export and Print (Pro):** bulk exports, folder exports, selected-message exports, and full print templates.
 - **Unlimited References and Profiles (Pro):** unlimited reference chats and unlimited custom instruction profiles.
 
-## Implementation status — WillAI-C 0.3.1
 
-This release adds a local workspace-organization and productivity slice on top of the browser/response foundation. The feature register above remains the complete product scope; the following lists distinguish implemented behavior from items that are not included in this release.
 
-### Implemented in 0.3.0
+## Implementation status — clean Rust rewrite 0.1.0
 
-**Folder organization and bulk conversation management**
-- Drag a conversation from the Work navigator onto a folder to file it; drop it on All conversations to move it back to Unfiled.
-- Drag a folder onto another folder to make it a subfolder, or drop it on All conversations to move it to the root level.
-- Folder moves validate the parent chain and reject self-parenting or moves that would create a cycle.
-- Edit folder names, colours, and icons from the folder navigator.
-- Archive or restore all selected conversations in one operation.
-- Move selected conversations to an existing folder or to Unfiled in one operation.
-- The navigation sidebar remains resizable.
+The previous Electron/Node.js/React/TypeScript/Vite implementation is retired and is not being ported. The new source tree starts from a clean Rust project.
 
-### Implemented in 0.3.1
+Implemented in the initial foundation:
+- Rust 2024 Cargo application.
+- Native WinUI 3 shell authored through `windows-reactor`.
+- Workspace-first New Conversation starting surface.
+- ChatGPT, Claude, and DeepSeek provider selection.
+- WebView2 embedded as a child control within the native WinUI layout tree.
+- Basic browser navigation controls.
+- HTTP(S)-only address normalization with unit tests.
 
-**Provider submission and response capture reliability**
-- Hidden provider WebContentsViews run without Chromium background timer throttling, so the provider observer and stability/retry pipeline continue while the browser surface is hidden.
-- Prompt text is inserted through the provider WebContents CDP target first; Electron's focus-dependent native insertion is retained only as a fallback.
-- The provider adapter verifies that the complete normalized prompt is present in the composer before activating Send. A partial insertion is rejected and is never submitted.
-- ChatGPT support includes the `data-conversation-role`, `data-markdown-text-style="assistant-message"`, and `data-chatgpt-composer` DOM structures; Claude support includes `.font-claude-response`.
-- Stable response identity is resolved from provider message/turn attributes on ancestor elements, and the observer reacts to role/streaming attribute changes.
-- Regression tests execute the provider preload against representative ChatGPT and Claude DOM fixtures and exercise the CDP input bridge and its fallback.
+Not yet implemented in this rewrite:
+- Prompt insertion or submission into provider pages.
+- Assistant response detection, extraction, and structured capture.
+- SQLite persistence and migrations.
+- Original Response, Working Document, Working Nodes, relations, or Model Context.
+- Folder, prompt, notes, search, export, media, sync, cloud, entitlement, or Showcase features.
+- A production installer or end-to-end tests against authenticated provider accounts.
 
-### Implemented in 0.2.0
-
-**Browser and local library**
-- Chromium pages remain hosted in in-app Electron WebContentsView tabs with a persistent profile, popup-to-tab handling, prompted site permissions, and download save dialogs.
-- Browser visits are recorded locally and can be revisited from the workspace.
-- Users can save and remove web bookmarks.
-
-**Conversation organization**
-- Local folders and subfolders can be created, selected, and deleted; deleting a folder moves its conversations to the parent folder.
-- Conversations can be assigned to a folder, pinned, or archived.
-- The workspace can filter by a selected folder or by archived conversations.
-- Conversations can be selected and bulk-deleted.
-- Conversation and response timestamps are displayed.
-- Individual assistant responses can be pinned.
-
-**Prompts**
-- A local Prompt Manager supports creating, editing, deleting, searching, categorizing, and favouriting saved prompts.
-- Reusable prompt variables use the {{variable}} syntax and are resolved before insertion into the active provider composer.
-- Usage of saved prompts is recorded in local prompt history.
-- Prompt collections can be imported from and exported to JSON.
-- A local prompt queue can hold items and insert them into the active provider composer one at a time. The user reviews and submits each inserted prompt; this release does not automatically send a queue.
-- Prompt records can be labelled as chains, but execution of multi-step prompt chains is not implemented.
-
-**Notes and model context**
-- Global notes and notes attached to a conversation can be created, edited, and deleted locally.
-- A conversation can reference other conversations. Referenced context includes only nodes that the user explicitly enabled for Model Context; private nodes remain excluded.
-- Original Response, Working Nodes, and Model Context remain separate.
-
-**Export**
-- A conversation's Original Responses can be exported as Markdown, TXT, HTML, JSON, or PDF.
-- PDF export uses the operating system's save dialog and Electron's print-to-PDF pipeline.
-- The current export control exports the whole conversation. Selection-based export, bulk export, ZIP packaging, and advanced print templates are not implemented.
-
-**Response interaction**
-- Original responses and Working Nodes preserve Markdown rendering.
-- Captured Markdown is parsed into independent, nested Working Nodes.
-- Nodes can be edited, deleted, extended, and explicitly included in or excluded from later model context.
-
-### Implemented foundation carried forward
-
-- Workspace-centered desktop shell with an integrated Chromium dock; New Conversation is the default starting surface.
-- Tabs, navigation, address/search field, back/forward/reload, and AI-provider shortcuts.
-- Persistent browser session.
-- Internal provider capture adapters for ChatGPT, Claude, and DeepSeek, with readiness and capture diagnostics.
-- New Conversation can submit a prompt through the selected provider's existing signed-in session. WillAI-C reuses or opens an in-app background provider tab, waits for adapter readiness, inserts the prompt, and activates the provider's enabled send control.
-- The provider observer monitors assistant responses and captures stable content using current ChatGPT/Claude/DeepSeek response selectors; the main process validates the originating provider tab and persists the Original Response.
-- SQLite local persistence through the Electron main-process repository, including transactional writes, foreign keys, indexes, WAL mode, schema versioning, and FTS5. Existing legacy JSON workspace data is migrated and retained as a separate migrated backup after a successful import.
-- Sandboxed provider preload and context-isolated application preload.
-
-The provider send-control acknowledgement confirms that the complete prompt was present and the page's send control was activated (or the provider showed a generation state). It is not proof of remote service acceptance or completed response capture. The manual prompt queue remains a separate feature: it inserts a queued item into the provider composer for the user to review and submit. Explicit Model Context insertion also remains insertion-only and does not submit automatically.
-
-### Not implemented in 0.3.1
-
-The following items remain in the feature register but are not delivered in this release:
-- Folder images, a right-side folder panel, automatic folders for Custom GPTs, automatic archive/delete execution, and cross-device sync.
-- Conversation tree map/PNG export, minimap, text highlights, annotations, and a full message navigator with user/assistant filters, day grouping, prompt navigation, long-chat loading controls, and full-chat find.
-- Prompt optimisation, automatic prompt queue submission, executable multi-step chains, slash autocomplete, arrow-key prompt recall, right-click prompt menus, public/community prompt discovery and sharing, smart replace, custom instruction profiles, and automatic custom instructions.
-- Advanced language/tone/model controls, copy modes, word/character counters, custom conversation width, ad filtering, send-key behaviour settings, auto splitter/summarizer, and screenshot actions.
-- ChatGPT settings overlay and appearance controls.
-- Bulk/selected-message export, ZIP/PDF batches, rich print templates, audio playback/download, voice mode, speech-to-text, and text-to-speech.
-- Image Gallery, image sharing/Showcase, paid recipes, GPT Store discovery, and newsletter archive.
-- Pro plans and centralized entitlement enforcement.
-- Cloud sync, community services, Showcase hosting, storefronts, payments, and public sharing backend.
-- Retention settings are persisted as preferences but automatic retention jobs are not active.
-- Live manual verification against current logged-in ChatGPT, Claude, and DeepSeek pages, including exact comparison with each provider's Copy output, and hands-on verification of the packaged Windows application.
-
-### Verification boundary
-
-Automated tests, type checking, renderer build, Electron syntax checks, and Windows packaging verify software build integrity. They do not prove that provider DOM adapters remain compatible with the latest live provider interfaces. Provider capture must be tested against actual signed-in accounts after installation.
-
-The feature register is the complete product scope. A feature not listed under the implemented sections above must not be described as delivered by version 0.3.1.
+No feature from the previous 0.3.1 implementation is considered carried forward unless it is reimplemented and verified in the Rust codebase.

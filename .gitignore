@@ -1,11 +1,14 @@
-node_modules/
-dist/
-release/
-*.log
+/target/
+/dist/
+/build/
+*.pdb
+*.ilk
+*.obj
+*.lib
+*.exp
+*.msi
+*.exe
+.vscode/
+.idea/
 .DS_Store
-.env*
-
-# Local workspace databases and SQLite journal files
-*.sqlite3
-*.sqlite3-shm
-*.sqlite3-wal
+Thumbs.db

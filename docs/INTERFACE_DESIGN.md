@@ -341,7 +341,7 @@ The browser is a first-class capability, but it does not dominate the workspace.
 - It starts closed.
 - The user can resize it and close it without changing the document.
 - At narrower window sizes, split mode becomes a switchable overlay or tab rather than squeezing both surfaces.
-- The browser's native WebContentsView bounds must always be constrained to the browser canvas rectangle. It must never cover application navigation or editor controls.
+- The native WebView2 control must remain inside the WinUI layout region assigned to the browser canvas. It must never cover application navigation or workspace controls.
 
 **Capture feedback**
 - A small, persistent status indicator shows Adapter loading, Ready, Capturing, Saved, or Error.
@@ -753,9 +753,9 @@ Components must consume semantic design tokens. Do not create feature-specific c
 
 These are UI requirements that affect the current architecture:
 
-- React owns the application shell and all workspace content.
-- Electron's native WebContentsView remains the browser page surface.
-- The main process owns WebContentsView creation, navigation, session, permissions, and exact viewport bounds.
+- Rust components built with windows-reactor own the application shell and all workspace content.
+- WebView2 is hosted as a native WinUI control inside the same Reactor view tree.
+- The native UI tree owns browser placement and sizing; the browser must not be implemented as a detached top-level window or an absolute-positioned overlay.
 - Browser view bounds are derived from a single explicit BrowserViewport rectangle reported by the renderer.
 - Browser view must be hidden or resized to zero when its canvas is closed or not active.
 - Provider page code remains isolated and untrusted. It must not receive app Node/Electron privileges.
@@ -857,7 +857,7 @@ This document defines the target experience. It does not authorize implementing 
 - Add export history, media, highlights, maps, and minimap.
 - Add sync, community, Showcase, account, and Pro screens only with their required services.
 
-Do not continue polishing the current three-column layout as the foundation. Use this specification to establish the new shell and Workbench, while preserving the browser engine, provider adapters, local data, and IPC boundaries that already satisfy the architecture.
+Do not treat previous Electron implementation details as architectural constraints. Use this specification to build the Rust/WinUI 3 shell and Workbench from a clean codebase; preserve product behavior only where it is stated as a requirement in this document.
 
 ---
 
@@ -867,7 +867,7 @@ Before an implementation PR is opened, review screenshots and interactions at:
 - 1440 × 900: full desktop workspace.
 - 1280 × 800: navigation and canvas with context panel.
 - 1024 × 768: navigation drawer and full-canvas provider session.
-- 900 × 700: minimum desktop layout, no overlapping WebContentsView.
+- 900 × 700: minimum desktop layout; the native WebView2 control remains clipped to its assigned layout cell.
 
 Required review screens:
 1. Home with realistic recent work.
@@ -955,4 +955,4 @@ Acceptance criteria for this direction:
 - A newly submitted mock conversation seeds its own linear tree path.
 - Branch in new chat adds a distinct alternate path from the selected message while leaving the current path intact.
 - The original Home, Work, Conversation, Response Workbench, Browser, Prompts, Notes, Media, and Model Context experiences remain reachable.
-- No production Electron/provider integration is implied by the prototype.
+- No production Rust/WebView2 provider integration is implied by the prototype.

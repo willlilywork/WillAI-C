@@ -1,191 +1,132 @@
-# WillAI-C — Workspace-Centered Architecture
+# WillAI-C — Rust Native Architecture
 
-## 1. Correct product boundary
+## 1. Rewrite boundary
 
-WillAI-C is a workspace-centered desktop application whose browser engine is Chromium. Chromium is the runtime and embedded web-content engine used to access ChatGPT, Claude, DeepSeek, Custom GPTs, and ordinary websites. It is not the product's application shell and must not dominate the interface.
+WillAI-C is being rebuilt from a clean implementation. The former Electron/Node.js/React/TypeScript/Vite codebase is not part of this architecture and must not be reintroduced.
 
-The WillAI-C workspace is the primary application surface. Conversation organization, prompts, notes, response artifacts, search, and work tools belong to that workspace. Browser tabs and web pages are integrated work surfaces that the workspace controls and presents in a docked or focused view. A captured response becomes a first-class workspace object; it must not remain trapped in a browser tab or an optional side panel.
+The application itself is Rust. Its native UI is authored through Microsoft's `windows-reactor` library, which provides a declarative Rust component model over native WinUI 3 controls. The embedded provider browser is Microsoft's WebView2 control, integrated into the same Reactor view tree using the `reactor` feature of `windows-webview`.
 
-WillAI-C is not a chat sidebar attached to external Chrome. It does not ask the user to install an extension in Chrome to make the desktop application work. It does not open AI websites in an external browser.
+Remote websites loaded inside WebView2 remain web applications written and delivered by their respective providers. They are untrusted content; they are not the implementation language or UI framework of WillAI-C.
 
-**WillAI-E Extension is a separate product** in the WillAI family. It adds WillAI features to Chrome and Firefox. No WillAI-E source code, extension manifest, or extension-to-localhost bridge belongs in this repository.
+## 2. Target platform
 
-### Chromium versus Google Chrome
+The first rewrite target is Windows 10/11 x64. This is an intentional choice because the required browser integration is directly supported by Microsoft's WinUI 3 + WebView2 Rust stack.
 
-The browser engine is Chromium, bundled by Electron. This gives WillAI-C its own browser runtime and release lifecycle. It is not the separately installed Google Chrome executable or a renamed copy of Chrome. The current dependency line is Electron 45, based on Chromium 156; Electron 45.3.2 is used because that is the stable package available from npm during this implementation.
+Cross-platform support is not claimed. A future macOS or Linux port would require a separate native UI/browser host implementation and must not compromise the Windows architecture.
 
-## 2. Browser runtime
+## 3. Application stack
 
-### Main process
+| Responsibility | Technology | Ownership |
+|---|---|---|
+| Application language | Rust 2024 | All product logic and application code |
+| Window and native controls | `windows-reactor` / WinUI 3 | Native view tree, layout, focus, accessibility |
+| Browser control | `windows-webview` / WebView2 | Embedded web content, navigation, profile, scripts, page events |
+| Browser engine | Microsoft Edge WebView2 (Chromium) | Remote website rendering |
+| Runtime deployment | `windows-reactor-setup` | Windows App SDK and WebView2 projection deployment |
+| Local persistence | SQLite, through a Rust data layer | Future local source of truth |
+| Search | SQLite FTS5 / Rust query layer | Future local full-text search |
+| Packaging | Cargo + Windows-native packaging | Future signed installer |
 
-Electron's main process owns:
-- The application window and browser tabs.
-- A persistent Chromium Session partition (`persist:willai-c-browser`) for website authentication, cookies, cache, and local storage.
-- A `BrowserController` that creates, positions, navigates, activates, and closes browser pages.
-- Navigation policy, popup-to-tab routing, download destination prompts, and site permission prompts.
-- Local data persistence and the trusted IPC boundary to the WillAI renderer.
-- Provider capture events received from the internal page preload.
+No Electron, Node.js runtime, npm package manager, React renderer, TypeScript build, Vite server, preload scripts, or browser extension is required by the desktop application.
 
-### Native web page views
+## 4. Native workspace and browser composition
 
-Each browser tab is an Electron `WebContentsView`. It is created and controlled by the main process, attached to the BrowserWindow's content view, and positioned exactly inside the browser surface assigned by the WillAI workspace. Its bounds must never cover the workspace navigation, response canvas, or application controls.
+The application window is owned by WinUI 3. The workspace shell and browser control are native views in one WinUI visual tree.
 
-This is intentionally not an HTML `<webview>` element. Electron advises against relying on its `<webview>` tag and recommends alternatives such as `WebContentsView`. A `WebContentsView` is not part of the renderer DOM, so the React renderer reports the browser viewport rectangle to the main process; the main process sets the active view's bounds and hides inactive views by setting their bounds to zero.
+The browser must be created as a Reactor WebView2 view (via `webview_result` / `webview` from `windows-webview` with its `reactor` feature), not as an independent top-level browser window. The browser is a child of the workspace's content layout. Its bounds are therefore assigned by the WinUI layout system; app code must not compute a renderer rectangle and place an overlapping browser window over it.
 
-### Renderer
+Required behavior:
+- The app starts on the WillAI-C workspace / New Conversation surface.
+- Provider pages appear only inside the designated browser content region.
+- The global app rail, workspace navigation, and browser controls remain native WillAI-C controls.
+- Resizing the window, changing layout width, and navigating between workspace surfaces must preserve correct WebView2 sizing and clipping.
+- When the browser view is removed, its controller/event registrations are released in a defined order.
+- If browser initialization fails, the workspace displays the error rather than opening an external browser or showing a detached window.
 
-React + TypeScript renders the primary WillAI-C application:
-- Workspace navigation, conversation library, and search.
-- Central workspace canvas for conversations, Original Responses, Working Nodes, and Model Context.
-- Integrated browser dock with its own tab/address/navigation controls.
-- Visible provider-adapter health and capture diagnostics.
-- Future folders, prompts, notes, minimap, highlights, media, and export surfaces.
+The native view tree is the boundary that prevents the previous "floating page" failure mode. This is a structural change, not a CSS fix.
 
-The workspace is always present. The browser is a managed surface inside that application; it can be shown, hidden, or focused without replacing the workspace shell.
+## 5. Component and state model
 
-The React renderer does not render the provider's page in an iframe. The provider page is its own Chromium WebContentsView, not an HTML child owned by React.
+Each feature is implemented as a Rust component with:
+- explicit owned state;
+- typed messages describing user and system events;
+- update logic that changes state;
+- a view function that describes native controls;
+- narrow interfaces to persistence and provider/browser services.
 
-### Browser page security
+Browser operations are asynchronous where WebView2 requires callbacks. Callback results return to the component through typed messages. Event registrations are retained for the lifetime of the browser component and dropped before its WebView handle.
 
-Remote browser content is untrusted:
-- `nodeIntegration: false`.
-- `contextIsolation: true`.
-- `sandbox: true`.
-- `webSecurity: true`.
-- The provider preload is separate from the application preload.
-- No Node.js or Electron API is exposed to provider page JavaScript.
-- Renderer IPC handlers validate the sender.
-- Navigation to non-HTTP(S) schemes is blocked.
-- Site permissions are prompted by WillAI-C instead of being silently granted.
+Long-running parsing, capture normalization, indexing, and import/export work must not block the WinUI UI thread. Background work uses Rust tasks/threads and returns typed results to the owning component.
 
-The provider preload runs in the isolated preload world, observes the supported provider page's DOM, and sends only response text/metadata through its private IPC channel. It also reports whether its adapter loaded, how many candidate message elements it can see, and any capture error. The main process verifies the sending WebContents and current provider origin before storing a capture, then reports success or failure to the workspace. It does not read provider cookies or call private provider APIs. A zero-capture state must be diagnosable in the UI; it must never be presented as proof that capture is working.
+## 6. Core product records
 
-## 3. Internal provider integration
+The architecture must preserve these independent data concepts:
 
-Supported initial providers:
-- ChatGPT: `chatgpt.com` and legacy `chat.openai.com`.
+- **Workspace** — the local WillAI-C environment.
+- **Conversation** — a provider-side discussion with a local identity and source.
+- **Message** — a user or assistant turn captured from a conversation.
+- **Original Response** — immutable source content, provenance, provider identity, capture time, and source reference.
+- **Working Document** — editable content derived from an Original Response.
+- **Working Block / Node** — an addressable paragraph, heading, list item, code block, quote, table, or other supported content block. Rich structure must not be flattened into one plain-text field.
+- **Relation** — semantic links between blocks, nodes, conversations, notes, references, and other records.
+- **AI-generated child artifact** — an explanation, refinement, summary, or other result linked to its selected parent.
+- **Model Context** — the exact, user-approved projection of selected content that will be provided to a model. Excluded by default.
+- **Prompt** — reusable user-authored input.
+- **Note** — user-authored knowledge or reference material.
+- **Browser Session / Tab** — a persistent WebView2 profile and a specific provider/site page.
+
+Parent-child nesting does not replace semantic relations. Editing a Working Document must never mutate the Original Response.
+
+## 7. Data and persistence direction
+
+The application is local-first. SQLite is intended to be the local source of truth for conversations, messages, Original Responses, Working Documents, nodes, relations, prompts, notes, browser metadata, and preferences.
+
+Persistence must be behind Rust repository interfaces. UI components must not issue ad-hoc SQL. The initial schema must use foreign keys, indexes, transactions, migration versioning, and FTS5 where available. Database work is not yet implemented in this foundation build.
+
+Cloud services are out of process and optional. Sync, public prompt discovery, community sharing, subscriptions, and paid storefront features require explicit service boundaries and must not make core local use depend on a cloud account.
+
+## 8. Provider integration and safety
+
+Initial browser providers:
+- ChatGPT: `chatgpt.com`.
 - Claude: `claude.ai`.
-- DeepSeek: `deepseek.com` and its supported subdomains.
+- DeepSeek: `chat.deepseek.com`.
 
-Each provider has its own adapter/selectors. A provider adapter:
-1. Identifies assistant-response containers, not user prompts.
-2. Waits for response content to remain stable before capturing.
-3. extracts text and paragraph-like blocks plus an available source message identifier.
-4. Sends the data through the WebContents preload IPC channel.
-5. Leaves the visible provider page and its own account/session in place.
+Provider integration must use the user's normal signed-in WebView2 browser session. It must not require provider API keys for the browser-based flow.
 
-Provider sites change their DOM frequently. Selectors are compatibility adapters, not a guaranteed provider API. They require regression tests and live browser verification after provider UI changes. Rich content such as images, audio, video, tables, tool calls, and citations needs a structured message model beyond the initial text capture.
+Provider adapters must:
+1. identify user and assistant messages without treating labels/toolbars as content;
+2. detect generation state and wait for stable assistant content;
+3. preserve rich structure instead of flattening the entire reply;
+4. capture only the content and metadata needed by WillAI-C;
+5. report readiness, unsupported page structure, and capture failures accurately;
+6. avoid private provider APIs and never attempt to read provider passwords or session secrets.
 
-## 4. WillAI response data
+All remote page content is untrusted. Application capabilities are exposed only through narrow, explicit WebView2 messaging. The app must validate origin, navigation, message shape, and expected provider before accepting browser-originated data. Do not enable blanket host privileges for provider pages.
 
-The first implementation preserves the three separate concepts:
+Provider DOM structures can change. Selectors are adapters, not stable provider APIs. Each supported provider requires fixture tests and a Windows integration test against the actual WebView2 runtime; passing mocked fixtures alone is not evidence of live provider acceptance.
 
-### Original Response
+## 9. Testing and release quality
 
-An immutable captured record:
-- Provider and source conversation URL.
-- Source message identifier when available.
-- Original text and capture timestamp.
-- Content fingerprint for deduplication.
+Required validation layers:
+- Rust unit tests for parsing, URL policy, state transitions, data models, and serialization.
+- Rust integration tests for repositories, migration, relationships, response structure, and context inclusion rules.
+- Windows WebView2 integration tests for navigation, resizing, clipping, focus, session persistence, page messaging, and shutdown.
+- Provider-specific regression tests for supported DOM variations.
+- Release build and packaging tests on Windows x64.
 
-Edits to nodes must never mutate this source record.
+The browser-layout acceptance test must resize the main window and surrounding panels and verify that the WebView2 control remains entirely within its native layout cell. A screenshot of a web page drawn outside the app window is a release-blocking defect.
 
-### Working Nodes
+CI currently begins with formatting, Rust tests, and Windows compilation. The browser-layout and authenticated-provider integration suites are not yet implemented.
 
-Mutable working units associated with an Original Response:
-- Stable node ID, parent ID, order, content, and initial content.
-- Provenance: captured, human-edited, or human-created.
-- Created/updated/deleted timestamps.
-- Explicit `includeInModelContext` flag, false by default.
+## 10. Explicit non-goals for the foundation build
 
-Nodes can be edited, created as children, and deleted as a subtree. Later versions must add split/merge, cross-message relations, undo/redo, version history, structured block types, and node-level selection.
+The first Rust foundation does not claim to implement:
+- automatic prompt submission into provider composers;
+- automatic response capture and persistence;
+- SQLite data storage or migration;
+- Working Nodes, their rich editor, or Model Context assembly;
+- prompt management, notes, folders, or exports;
+- cloud sync, accounts, payments, or community services.
 
-### Model Context
-
-A derived projection of Working Nodes marked for sharing. Local edits remain private until explicitly enabled. When the user chooses **Insert shared context**, the application sends the selected projection to the active provider page through the isolated preload. It is inserted into the prompt composer for review; it is never automatically submitted.
-
-This distinction is mandatory across all provider adapters and future prompt features. An Original Response, a user's Working Nodes, and the text supplied to a model are not interchangeable records.
-
-## 5. Local persistence and future data model
-
-The local workspace now uses SQLite through a transactional repository in the Electron main process. Existing JSON workspace files are migrated on first startup and retained as a separate legacy backup after a successful import.
-
-The target local data model must include at least:
-- BrowserProfile, BrowserSettings, BrowserPermission, Bookmark, BrowserHistoryEntry, TabSession.
-- Conversation, Message, OriginalResponse, ResponseBlock, WorkingNode, NodeRelation, Highlight, Annotation, PinnedMessage.
-- Folder, FolderRule, TemporaryConversation, ConversationReference.
-- ChatNote, GlobalNote.
-- Prompt, PromptVariable, PromptVersion, PromptHistoryEntry, FavoritePrompt, PromptQueueItem, PromptChain, PromptChainStep, InstructionProfile, SmartReplacement.
-- MediaAsset, ImageGalleryItem, AudioAsset, ExportJob.
-- CustomGPTReference, GPTStoreEntry.
-- SyncState, Device, Entitlement, PlanFeature.
-- CommunityPrompt, PromptVote, PromptReport, ShareLink, ShowcasePage, PaidRecipe, Purchase.
-
-Use a local-first repository boundary so that local browsing, node editing, notes, prompt history, and core search do not require the WillAI cloud. Cloud services are introduced only for features that inherently need cross-device sync, public community discovery, share pages, subscriptions, or paid marketplace transactions.
-
-SQLite is the source of truth for mutable local data. The schema separates folders, conversations, Original Responses, Working Nodes, prompts, notes, browser records, and queue items; foreign keys, indexes, WAL mode, and an FTS5 search index are maintained by the main-process store. Schema evolution uses SQLite's user_version, and the legacy JSON file is not overwritten during migration. React communicates through the IPC repository surface and does not access database files.
-
-## 6. Product feature modules
-
-The detailed, user-supplied feature list and Pro boundaries are recorded in [PRODUCT_SCOPE.md](./PRODUCT_SCOPE.md). The intended modules are:
-
-1. **Browser Core** — tabs, sessions, navigation, history, downloads, permission/site settings, keyboard routing, privacy, and browser profile.
-2. **Conversation Workspace** — folders/subfolders, colors/images, drag-and-drop, pins, conversation tree map, minimap, highlights, annotations, timestamps, bulk operations, lifecycle rules, temporary mode, and search.
-3. **Prompt System** — prompt manager, variables, optimizer, queue, chains, history, autocomplete, favorites, public prompt discovery/sharing/import/export, smart replacement, and instruction profiles.
-4. **AI Interaction Layer** — language, tone/style, model identity, composer behavior, splitting/summarization, copy modes, formatting, word counts, scroll controls, and ad-card handling.
-5. **Response Workbench** — immutable Original Responses, Working Nodes, provenance, relations, selected Model Context, refinements, explanations, and response-level navigation.
-6. **Knowledge and References** — chat notes, global notes, conversation references, global search, and contextual retrieval.
-7. **Media and Exports** — image gallery, audio controls, voice, speech-to-text, text-to-speech, PDF/JSON/Markdown/HTML/TXT export, bulk export, selected-message export, and print layouts.
-8. **GPT Discovery and Showcase** — Custom GPT discovery, public image/prompt pages, community recipes, paid recipes, gallery sharing, voting, reports, and filters.
-9. **Sync and Account Services** — optional cross-device sync, public prompt service, user accounts, subscription entitlements, marketplace payments, and Pro support.
-10. **Entitlements** — centralized server-verifiable Pro features and limits. Pro gating must not be scattered as UI-only conditionals.
-
-## 7. Security and privacy principles
-
-- Provider pages run as untrusted remote content and do not receive application privileges.
-- Local data and prompt history stay on the user's device unless a feature explicitly syncs or publishes them.
-- Sharing model context is an explicit user action.
-- Browser permissions are requested per website and type.
-- Public prompt/share/Showcase services require explicit publication and clear ownership.
-- Sync uses authenticated devices and encrypted transport; the storage/encryption design must be specified before implementing cloud sync.
-- Paid recipes and image sales require a real backend entitlement and payment design; no client-only flag grants access.
-
-## 8. Current implementation status
-
-Implemented in the current integration branch:
-
-- New Conversation is the default starting surface in a workspace-centered Electron application.
-- Chromium-backed WebContentsView tabs are managed inside an integrated Browser dock. The workspace remains visible and owns the application shell.
-- The New Conversation submission path reuses or opens the selected provider tab, waits for its isolated adapter, inserts the prompt, and activates the provider's enabled send control. The provider page can continue loading and submitting while its native view is hidden from the workspace.
-- Provider adapters for ChatGPT, Claude, and DeepSeek report readiness, message-element discovery, and capture errors.
-- The provider observer monitors assistant content, waits for it to stabilise, converts supported DOM content to Markdown, and sends it to the main process. The main process validates the source tab/provider and persists the Original Response.
-- Original Responses remain separate from editable, nested Working Nodes. Working Nodes are private by default and only explicitly selected nodes enter Model Context.
-- SQLite is the local source of truth through a transactional main-process repository. The schema uses foreign keys, indexes, WAL mode, schema versioning, and FTS5. Legacy JSON data is migrated and retained as a backup.
-- The local productivity slice includes folders/subfolders, conversation pin/archive/bulk actions, prompt management with variables/favourites/history/import/export, a manually submitted prompt queue, global and conversation notes, conversation references, bookmarks/history, and Markdown/TXT/HTML/JSON/PDF conversation export.
-- GitHub Actions currently verifies tests, TypeScript, the renderer build, Electron syntax, and the Windows installer packaging workflow.
-
-### Submission acknowledgement boundary
-
-A successful willai:prompt-submit-result means the provider page's enabled send control was activated. It does not prove remote acceptance, generation completion, or successful capture. Response detection, persistence, and the workspace update are separate events. Do not represent a send-button click as proof of an end-to-end successful request.
-
-The separate **Insert shared context** action only inserts the selected context into the provider composer for review; it does not submit. The prompt queue also inserts items for manual submission. These behaviors must not be conflated with the New Conversation **Send request** path.
-
-Still not verified or implemented:
-
-- Live end-to-end submission and response capture against current signed-in ChatGPT, Claude, and DeepSeek sessions. Confirm the remote request proceeds, the completed answer is captured once, Markdown formatting is preserved, the correct provider/conversation is associated, and the result appears in Work.
-- Manual installation and operation of the packaged Windows application, including relaunch, existing workspace data, browser sign-in/session persistence, and legacy JSON migration/recovery. A green Windows packaging workflow is not a substitute for this test.
-- Packaged macOS/Linux release validation.
-- Provider-specific structured response AST and full fidelity for rich content such as images, audio, video, citations, and interactive tool output. Current capture is a Markdown-oriented text path.
-- The remaining product-scope features not listed as implemented in [PRODUCT_SCOPE.md](./PRODUCT_SCOPE.md), including conversation tree maps, minimaps, highlights/annotations, advanced message navigation, advanced prompt automation, voice/media features, GPT discovery, Showcase, cloud sync, community services, and Pro entitlements.
-
-
-
-## 9. Immediate continuation sequence
-
-1. Run live smoke tests with signed-in ChatGPT, Claude, and DeepSeek sessions. For each provider, verify adapter readiness, prompt insertion, send-control activation, remote request progress, completed response capture, correct provider/conversation association, Markdown fidelity, and deduplication.
-2. Install the Windows x64 test artifact manually. Test a fresh install and an upgrade/relaunch with existing local workspace data; verify provider sign-ins, SQLite persistence, and the legacy JSON migration/backup path.
-3. Fix any provider-specific selector, submission, or capture failures found by those tests. Keep send initiation, remote response completion, and persistence as independently observable states.
-4. Continue implementation against the complete feature register in [PRODUCT_SCOPE.md](./PRODUCT_SCOPE.md), checking the existing repository before adding functionality so delivered features are not duplicated.
-5. Keep PR #1 as Draft and do not merge the integration branch into main until the live provider and packaged Windows validation gates are satisfied.
-
-The Pro features remain part of the product requirements from the beginning, but their service dependencies and licensing are implemented when the corresponding base capabilities exist.
+Those are product requirements, but must be built against this new architecture and separately verified.

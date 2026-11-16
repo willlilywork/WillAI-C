@@ -1,0 +1,35 @@
+name: Rust Windows CI
+
+on:
+  push:
+    branches: [main, rewrite/rust-native-windows]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Rust tests
+        run: cargo test
+
+      - name: Type and API check
+        run: cargo check
+
+      - name: Build release executable
+        run: cargo build --release
