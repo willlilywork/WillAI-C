@@ -110,6 +110,24 @@ test('ChatGPT current assistant message and composer selectors are supported', (
   assert.ok(preload.includes('data-chatgpt-search-message-ids'));
 });
 
+test('current ChatGPT app-shell and Claude response DOM structures are covered', () => {
+  const preload = fs.readFileSync(path.join(root, 'src/main/provider-capture-preload.cjs'), 'utf8');
+  assert.ok(preload.includes('[data-conversation-role="assistant"]'));
+  assert.ok(preload.includes('[data-conversation-role="user"]'));
+  assert.ok(preload.includes('[data-markdown-text-style="assistant-message"]'));
+  assert.ok(preload.includes('form[data-chatgpt-composer] [data-composer-markdown][contenteditable="true"][role="textbox"]'));
+  assert.ok(preload.includes('.font-claude-response'));
+  assert.ok(preload.includes('data-turn-key'));
+  assert.ok(preload.includes("attributeFilter:"));
+});
+
+test('composer verification normalizes non-breaking spaces and carriage returns', () => {
+  const preload = fs.readFileSync(path.join(root, 'src/main/provider-capture-preload.cjs'), 'utf8');
+  assert.match(preload, /replace\(\/\\u00a0\/g, ' '\)/);
+  assert.match(preload, /replace\(\/\\r\/g, ''\)/);
+  assert.ok(preload.includes('actual !== expected'));
+});
+
 test('DeepSeek current composer and send controls are supported', () => {
   const preload = fs.readFileSync(path.join(root, 'src/main/provider-capture-preload.cjs'), 'utf8');
   assert.ok(preload.includes("'#chat-input'"));
