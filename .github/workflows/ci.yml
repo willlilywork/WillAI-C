@@ -1,0 +1,26 @@
+name: WillAI-C checks
+
+on:
+  push:
+    branches: [main, rebuild/desktop-first-foundation]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Check Electron main and provider preload syntax
+        run: |
+          node --check src/main/index.cjs
+          node --check src/main/browser.cjs
+          node --check src/main/preload.cjs
+          node --check src/main/provider-capture-preload.cjs
+          node --check src/main/markdown-nodes.cjs
