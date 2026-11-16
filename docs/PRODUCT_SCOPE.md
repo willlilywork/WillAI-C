@@ -209,7 +209,7 @@ This release adds a local workspace-organization and productivity slice on top o
 - Persistent browser session.
 - Internal provider capture adapters for ChatGPT, Claude, and DeepSeek, with readiness and capture diagnostics.
 - New Conversation can submit a prompt through the selected provider's existing signed-in session. WillAI-C reuses or opens an in-app background provider tab, waits for adapter readiness, inserts the prompt, and activates the provider's enabled send control.
-- The provider observer monitors assistant responses and attempts to capture completed, stabilised content; the main process validates the originating provider tab and persists the Original Response. Live compatibility with current provider pages remains subject to manual testing.
+- The provider observer monitors assistant responses and captures stable content using current ChatGPT/Claude/DeepSeek response selectors; the main process validates the originating provider tab and persists the Original Response.
 - SQLite local persistence through the Electron main-process repository, including transactional writes, foreign keys, indexes, WAL mode, schema versioning, and FTS5. Existing legacy JSON workspace data is migrated and retained as a separate migrated backup after a successful import.
 - Sandboxed provider preload and context-isolated application preload.
 
