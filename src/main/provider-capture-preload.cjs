@@ -22,6 +22,13 @@ const { ipcRenderer } = require('electron');
 
   const selectors = {
     chatgpt: [
+      'main [data-app-action-timeline-scroll][role="region"] [data-markdown-text-style="assistant-message"]',
+      'main [data-conversation-role="assistant"] [data-markdown-text-style="assistant-message"]',
+      '[data-markdown-text-style="assistant-message"]',
+      'main [data-conversation-role="assistant"]',
+      '[data-conversation-role="assistant"]',
+      'main [data-content-search-unit-key$=":assistant"]',
+      '[data-content-search-unit-key$=":assistant"]',
       'main [data-app-action-timeline-scroll][role="region"] [data-content-search-unit-key$=":assistant"]',
       'main [data-app-action-timeline-scroll][role="region"] [data-chatgpt-search-unit-key$=":assistant"]',
       'main [data-message-author-role="assistant"] .markdown',
@@ -37,6 +44,7 @@ const { ipcRenderer } = require('electron');
       '[data-message-author-role="assistant"]',
     ],
     claude: [
+      '.font-claude-response',
       '.font-claude-message',
       '[data-testid="chat-message"][data-is-streaming="false"]',
       '[data-testid="chat-message"] .markdown',
@@ -53,6 +61,9 @@ const { ipcRenderer } = require('electron');
 
   const generationStopSelectors = {
     chatgpt: [
+      '[data-chatgpt-composer] [aria-busy="true"]',
+      'main [data-is-streaming="true"]',
+      'main [data-conversation-role="assistant"][aria-busy="true"]',
       'button[data-testid="stop-button"]',
       '[data-testid*="stop-generating"]',
       'button[aria-label*="Stop" i]',
@@ -105,9 +116,10 @@ const { ipcRenderer } = require('electron');
   function ignored(element) {
     return element.matches(
       'button, svg, script, style, nav, footer, [aria-hidden="true"], '
+      + '[class*="sr-only"], [class*="visually-hidden"], '
       + '[data-testid*="copy"], [data-testid*="feedback"], '
       + '[data-testid*="toolbar"], [role="toolbar"]',
-    ) || Boolean(element.closest('[aria-hidden="true"], [data-testid*="toolbar"]'));
+    ) || Boolean(element.closest('[aria-hidden="true"], [class*="sr-only"], [class*="visually-hidden"], [data-testid*="toolbar"]'));
   }
 
   function inlineMarkdown(node) {
@@ -267,35 +279,57 @@ const { ipcRenderer } = require('electron');
   }
 
   function stableMessageId(element) {
-    const chatGptMessageIds = element.getAttribute('data-chatgpt-search-message-ids');
-    if (chatGptMessageIds) return String(chatGptMessageIds).trim().slice(0, 200);
-
-    const direct = element.getAttribute('data-message-id') || element.id;
-    if (direct && direct.length > 3) return String(direct).slice(0, 200);
-
-    let ancestor = element.parentElement;
+    const identityAttributes = [
+      'data-chatgpt-search-message-ids',
+      'data-message-id',
+      'data-message-uuid',
+      'data-turn-key',
+      'data-content-search-turn-key',
+      'data-turn-id',
+    ];
+    let current = element;
     let depth = 0;
-    while (ancestor && depth < 5) {
-      const testId = ancestor.getAttribute('data-testid') || '';
-      if (/conversation-turn-\w+|message-[\w-]{6,}/i.test(testId)) {
-        return testId.slice(0, 200);
+    while (current && depth < 12) {
+      for (const attribute of identityAttributes) {
+        const value = current.getAttribute(attribute);
+        if (value && value.length > 3) {
+          return (provider + ':' + attribute + ':' + String(value).trim()).slice(0, 200);
+        }
       }
-      const messageId = ancestor.getAttribute('data-message-id');
-      if (messageId) return messageId.slice(0, 200);
-      ancestor = ancestor.parentElement;
+      const testId = current.getAttribute('data-testid') || '';
+      if (/conversation-turn-[\w-]+|message-[\w-]{6,}/i.test(testId)) {
+        return (provider + ':testid:' + testId).slice(0, 200);
+      }
+      current = current.parentElement;
       depth += 1;
     }
 
-    // Never use a generic data-testid such as "chat-message" as a unique ID.
-    // The main process will deduplicate this response by its content fingerprint.
+    // Generic IDs/testids are not unique. Use fingerprint deduplication until
+    // the provider exposes a stable identity for this response.
     return null;
   }
-
   function isUserContent(element) {
-    if (element.closest('[data-message-author-role="user"], [data-testid*="user-message"], [aria-label*="user message" i]')) return true;
-    const roleRoot = element.closest('[data-message-author-role]');
-    return Boolean(roleRoot && (roleRoot.getAttribute('data-message-author-role') || '').toLowerCase() !== 'assistant');
+    if (element.closest(
+      '[data-message-author-role="user"], [data-conversation-role="user"], '
+      + '[data-content-search-unit-key$=":user"], [data-chatgpt-search-unit-key$=":user"], '
+      + '[data-testid*="user-message"], [aria-label*="user message" i]',
+    )) return true;
+    const roleRoot = element.closest('[data-message-author-role], [data-conversation-role]');
+    if (!roleRoot) return false;
+    const role = (roleRoot.getAttribute('data-message-author-role')
+      || roleRoot.getAttribute('data-conversation-role') || '').toLowerCase();
+    return role !== 'assistant';
   }
+
+  const responseBodySelector = [
+    '[data-markdown-text-style="assistant-message"]',
+    '.font-claude-response',
+    '.font-claude-message',
+    '.ds-markdown',
+    '.markdown',
+    '.prose',
+    '[data-message-content]',
+  ].join(', ');
 
   function collectCandidates() {
     const candidates = new Set();
@@ -307,10 +341,17 @@ const { ipcRenderer } = require('electron');
         const testId = (element.getAttribute('data-testid') || '').toLowerCase();
         const label = (element.getAttribute('aria-label') || '').toLowerCase();
         if (testId.includes('human') || label.includes('user message')) continue;
+
         let body = element;
-        if (provider === 'chatgpt' && !element.matches('.markdown, .prose, [data-message-content]')) {
-          const preferred = element.querySelector('.markdown, .prose, [data-message-content]');
-          if (preferred instanceof HTMLElement && !isUserContent(preferred)) body = preferred;
+        if (!element.matches(responseBodySelector)) {
+          const preferred = element.querySelector(responseBodySelector);
+          if (preferred instanceof HTMLElement && !ignored(preferred) && !isUserContent(preferred)) {
+            body = preferred;
+          } else if (provider === 'chatgpt' && element.matches('[data-conversation-role="assistant"]')) {
+            // Some new shells expose the role label separately from its content.
+            // Never save the role label itself as an assistant response.
+            continue;
+          }
         }
         if (markdownOf(body).length > 0) candidates.add(body);
       }
@@ -407,7 +448,16 @@ const { ipcRenderer } = require('electron');
   const start = () => {
     if (!document.documentElement) return;
     reportStatus('ready', 0, 'The WillAI-C provider adapter is loaded on this page.');
-    observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: [
+        'data-is-streaming', 'aria-busy', 'data-markdown-text-style',
+        'data-conversation-role', 'data-testid', 'aria-label',
+      ],
+    });
     scan();
   };
 
@@ -438,6 +488,12 @@ const { ipcRenderer } = require('electron');
   function findComposer() {
     const composerSelectors = provider === 'chatgpt'
       ? [
+        'form[data-chatgpt-composer] [data-composer-markdown][contenteditable="true"][role="textbox"]',
+        'form[data-chatgpt-composer] [contenteditable="true"][role="textbox"]',
+        '[data-composer-markdown][contenteditable="true"][role="textbox"]',
+        'div.ProseMirror[role="textbox"]',
+        '[contenteditable="true"][class*="ProseMirror"]',
+        'form div[contenteditable="true"][role="textbox"]',
         '#prompt-textarea',
         'textarea[name="prompt-textarea"]',
         'textarea#mobile-composer-prompt',
@@ -508,12 +564,16 @@ const { ipcRenderer } = require('electron');
     if (!composer) return null;
     const selectors = provider === 'chatgpt'
       ? [
+        'button[data-testid="send-button"]',
+        'button[aria-label*="Send" i]',
+        'form[data-chatgpt-composer] button[type="submit"]',
         '#composer-submit-button',
         'button#composer-submit-button',
         'button[data-testid="send-button"]',
         'button[aria-label="Send prompt"]',
         'button[aria-label="Send message"]',
         'button[aria-label="Send"]',
+        'button[aria-label*="Send" i]',
         'button[type="submit"]',
       ]
       : provider === 'claude'
@@ -552,10 +612,12 @@ const { ipcRenderer } = require('electron');
 
   const pendingSubmissions = new Set();
   const submissionComposers = new Map();
+  const submissionTexts = new Map();
 
   function reportPromptSubmission(requestId, ok, error) {
     pendingSubmissions.delete(requestId);
     submissionComposers.delete(requestId);
+    submissionTexts.delete(requestId);
     ipcRenderer.send('willai:prompt-submit-result', { requestId, provider, ok, ...(error ? { error } : {}) });
   }
 
@@ -574,6 +636,21 @@ const { ipcRenderer } = require('electron');
     setTimeout(() => verifyPromptStarted(requestId, attempt + 1), 250);
   }
 
+  function submitComposerForm(requestId) {
+    const composer = submissionComposers.get(requestId);
+    const expected = normaliseComposerText(submissionTexts.get(requestId));
+    if (!composer || !expected || normaliseComposerText(readComposerText(composer)) !== expected) return false;
+    const form = composer.closest('form');
+    if (!form || typeof form.requestSubmit !== 'function') return false;
+    try {
+      form.requestSubmit();
+      setTimeout(() => verifyPromptStarted(requestId), 250);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function waitForSendControl(requestId, attempt = 0) {
     if (!pendingSubmissions.has(requestId)) return;
     const composer = submissionComposers.get(requestId);
@@ -588,7 +665,8 @@ const { ipcRenderer } = require('electron');
       return;
     }
     if (attempt >= 49) {
-      reportPromptSubmission(requestId, false, 'The prompt was inserted, but the provider composer did not expose an enabled send control. Open Browser to inspect the provider page.');
+      if (submitComposerForm(requestId)) return;
+      reportPromptSubmission(requestId, false, 'The full prompt is present, but the provider did not expose an enabled send control or submit handler.');
       return;
     }
     setTimeout(() => waitForSendControl(requestId, attempt + 1), 200);
@@ -623,8 +701,18 @@ const { ipcRenderer } = require('electron');
     }
     const composer = submissionComposers.get(requestId);
     const actual = normaliseComposerText(readComposerText(composer));
+    const expected = normaliseComposerText(submissionTexts.get(requestId));
     if (!actual) {
-      reportPromptSubmission(requestId, false, 'Electron reported text insertion, but the provider composer remained empty.');
+      reportPromptSubmission(requestId, false, 'The insertion command completed, but the provider composer remained empty.');
+      return;
+    }
+    if (actual !== expected) {
+      reportPromptSubmission(
+        requestId,
+        false,
+        'The provider composer did not receive the complete prompt. Expected ' + expected.length
+          + ' characters but found ' + actual.length + '. The message was not submitted.',
+      );
       return;
     }
     setTimeout(() => waitForSendControl(requestId), 250);
@@ -638,6 +726,11 @@ const { ipcRenderer } = require('electron');
       return;
     }
     pendingSubmissions.add(requestId);
+    submissionTexts.set(requestId, String(request?.content || ''));
+    if (!normaliseComposerText(submissionTexts.get(requestId))) {
+      reportPromptSubmission(requestId, false, 'WillAI-C received an empty prompt.');
+      return;
+    }
     requestNativePromptInsert(requestId);
   });
 
