@@ -27,7 +27,7 @@ Editing or deleting a Working Node does not rewrite the Original Response. Nodes
 
 There are two different submission paths:
 
-- **New Conversation — Send request:** WillAI-C inserts the prompt into the selected provider composer and activates the provider's enabled send control. The local acknowledgement confirms that the page's send control was clicked; it does not prove that the remote service accepted the request or completed a response. Response capture is a separate step.
+- **New Conversation — Send request:** WillAI-C inserts the prompt into the selected provider composer, verifies that the complete normalized text is present, and activates the provider's enabled send control. The result confirms that the provider page indicated submission/generation; it cannot prove remote-service acceptance or completed response capture.
 - **Insert shared Model Context / prompt-queue item:** content is inserted into the active provider composer for review. This action does not submit it. Prompt-queue items are still submitted manually, one at a time.
 
 The provider pipeline now avoids Chromium background timer throttling for hidden provider views, uses CDP-first insertion, rejects partial prompt insertion, and includes DOM fixtures for the current ChatGPT and Claude response structures. The automated tests verify these application-side paths; they do not emulate provider authentication, remote service acceptance, rate limits, or provider-side failures.
