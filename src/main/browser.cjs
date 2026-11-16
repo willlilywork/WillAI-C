@@ -374,6 +374,9 @@ class BrowserController {
     if (pageUrl.protocol !== 'https:' || providerFromUrl(pageUrl.href) !== pending.provider) return false;
 
     pending.inserting = true;
+    // The page-side composer has been focused by the preload. Focus the
+    // provider WebContents before using Electron's trusted text insertion.
+    try { webContents.focus(); } catch {}
     Promise.resolve(webContents.insertText(pending.content)).then(() => {
       const current = this.pendingPromptSubmissions.get(requestId);
       if (current !== pending || webContents.isDestroyed()) return;
@@ -386,6 +389,8 @@ class BrowserController {
         ok: false,
         error: error instanceof Error ? error.message : 'Electron could not insert text into the provider composer.',
       });
+    }).finally(() => {
+      if (!this.window.isDestroyed()) this.window.webContents.focus();
     });
     return true;
   }
