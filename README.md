@@ -13,7 +13,7 @@ WillAI-C uses the Chromium engine bundled by Electron. It does not launch or wra
 - ChatGPT, Claude, and DeepSeek provider adapters expose readiness and capture diagnostics.
 - Assistant responses are monitored, converted to Markdown text, validated in the main process, and saved as Original Responses in the local workspace. Markdown content is parsed into editable, nested Working Nodes.
 - The integrated Browser dock provides tabs, address/search, navigation, persistent site sessions, permission prompts, and download dialogs.
-- Local workspace tools include folders and subfolders, conversation pin/archive/bulk actions, a Prompt Manager with variables/favourites/history and JSON import/export, a manual prompt queue, global and conversation notes, conversation references, bookmarks/history, and conversation exports.
+- Local workspace tools include folders and subfolders, editable folder names/colours/icons, drag-and-drop filing and nesting, conversation pin/archive, bulk archive/restore/move/delete actions, a Prompt Manager with variables/favourites/history and JSON import/export, a manual prompt queue, global and conversation notes, conversation references, bookmarks/history, and conversation exports.
 
 ## Response and submission boundaries
 

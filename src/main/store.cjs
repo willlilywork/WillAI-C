@@ -682,6 +682,43 @@ class LocalStore {
     return { ok: true };
   }
 
+  moveFolder(folderId, parentId = null) {
+    const folder = this.state.folders.find((item) => item.id === String(folderId));
+    if (!folder) throw new Error('Folder not found.');
+    const nextParentId = parentId ? String(parentId) : null;
+    if (nextParentId && !this.state.folders.some((item) => item.id === nextParentId)) {
+      throw new Error('Target folder not found.');
+    }
+
+    let ancestorId = nextParentId;
+    const visited = new Set();
+    while (ancestorId) {
+      if (ancestorId === folder.id) throw new Error('Moving this folder would create a hierarchy cycle.');
+      if (visited.has(ancestorId)) throw new Error('The existing folder hierarchy contains a cycle.');
+      visited.add(ancestorId);
+      const ancestor = this.state.folders.find((item) => item.id === ancestorId);
+      if (!ancestor) throw new Error('Target folder not found.');
+      ancestorId = ancestor.parentId || null;
+    }
+
+    const previousParentId = folder.parentId || null;
+    if (previousParentId === nextParentId) return { ok: true, moved: false };
+
+    this.state.folders
+      .filter((item) => (item.parentId || null) === previousParentId && item.id !== folder.id)
+      .sort((a, b) => a.position - b.position)
+      .forEach((item, index) => { item.position = index; });
+
+    const targetSiblings = this.state.folders
+      .filter((item) => (item.parentId || null) === nextParentId && item.id !== folder.id)
+      .sort((a, b) => a.position - b.position);
+    folder.parentId = nextParentId;
+    folder.position = targetSiblings.length;
+    folder.updatedAt = now();
+    this.persist();
+    return { ok: true, moved: true };
+  }
+
   deleteFolder(folderId) {
     const folder = this.state.folders.find((item) => item.id === folderId);
     if (!folder) throw new Error('Folder not found.');
@@ -715,6 +752,46 @@ class LocalStore {
     conversation.updatedAt = now();
     this.persist();
     return { ok: true };
+  }
+
+  bulkSetConversationFlags(conversationIds, patch = {}) {
+    const ids = new Set((Array.isArray(conversationIds) ? conversationIds : []).map(String));
+    if (!ids.size) return { updated: 0 };
+    const timestamp = now();
+    let updated = 0;
+    for (const conversation of this.state.conversations) {
+      if (!ids.has(conversation.id)) continue;
+      if (patch.pinned !== undefined) conversation.pinned = Boolean(patch.pinned);
+      if (patch.archived !== undefined) {
+        conversation.archivedAt = patch.archived
+          ? (conversation.archivedAt || timestamp)
+          : null;
+      }
+      if (patch.temporary !== undefined) conversation.temporary = Boolean(patch.temporary);
+      conversation.updatedAt = timestamp;
+      updated += 1;
+    }
+    if (updated) this.persist();
+    return { updated };
+  }
+
+  bulkMoveConversations(conversationIds, folderId = null) {
+    const ids = new Set((Array.isArray(conversationIds) ? conversationIds : []).map(String));
+    if (!ids.size) return { moved: 0 };
+    const targetFolderId = folderId ? String(folderId) : null;
+    if (targetFolderId && !this.state.folders.some((folder) => folder.id === targetFolderId)) {
+      throw new Error('Target folder not found.');
+    }
+    const timestamp = now();
+    let moved = 0;
+    for (const conversation of this.state.conversations) {
+      if (!ids.has(conversation.id)) continue;
+      conversation.folderId = targetFolderId;
+      conversation.updatedAt = timestamp;
+      moved += 1;
+    }
+    if (moved) this.persist();
+    return { moved };
   }
 
   bulkDeleteConversations(conversationIds) {

@@ -24,6 +24,24 @@ test('closing the last browser tab leaves the browser empty', () => {
   assert.doesNotMatch(browser, /if \(!this\.activeTabId\)\s*\{\s*this\.createTab\(['"]https:\/\/chatgpt\.com\//);
 });
 
+test('workspace folders support drag and drop plus bulk conversation actions', () => {
+  const app = fs.readFileSync(path.join(root, 'src/renderer/App.tsx'), 'utf8');
+  const preload = fs.readFileSync(path.join(root, 'src/main/preload.cjs'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'src/main/index.cjs'), 'utf8');
+
+  assert.match(app, /application\/x-willai-folder/);
+  assert.match(app, /application\/x-willai-conversation/);
+  assert.match(app, /onDrop=\{\(event\) => handleFolderDrop/);
+  assert.match(app, /archiveSelectedConversations/);
+  assert.match(app, /moveSelectedConversations/);
+  assert.match(preload, /moveFolder: \(folderId, parentId\)/);
+  assert.match(preload, /bulkSetConversationFlags:/);
+  assert.match(preload, /bulkMoveConversations:/);
+  assert.match(main, /willai:move-folder/);
+  assert.match(main, /willai:bulk-set-conversation-flags/);
+  assert.match(main, /willai:bulk-move-conversations/);
+});
+
 test('provider requests use the background submit bridge', () => {
   const app = fs.readFileSync(path.join(root, 'src/renderer/App.tsx'), 'utf8');
   assert.match(app, /window\.willai\.sendPrompt\(provider, content\)/);

@@ -43,6 +43,59 @@ test('folder hierarchy, conversation assignment, and folder deletion preserve co
   }
 });
 
+test('folders can be nested by move and cyclic parent changes are rejected', () => {
+  const { directory, store } = makeStore();
+  try {
+    const parent = store.createFolder({ name: 'Projects' });
+    const child = store.createFolder({ name: 'Research', parentId: parent.folderId });
+    const sibling = store.createFolder({ name: 'Archive' });
+
+    assert.equal(store.moveFolder(sibling.folderId, child.folderId).moved, true);
+    let folders = store.getSnapshot().folders;
+    assert.equal(folders.find((folder) => folder.id === sibling.folderId).parentId, child.folderId);
+    assert.equal(folders.find((folder) => folder.id === child.folderId).parentId, parent.folderId);
+
+    assert.throws(() => store.moveFolder(parent.folderId, sibling.folderId), /cycle/i);
+    assert.throws(() => store.moveFolder(sibling.folderId, 'missing-folder'), /Target folder not found/);
+
+    store.moveFolder(sibling.folderId, null);
+    folders = store.getSnapshot().folders;
+    assert.equal(folders.find((folder) => folder.id === sibling.folderId).parentId, null);
+    assert.equal(folders.find((folder) => folder.id === sibling.folderId).position, 1);
+  } finally {
+    store.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('bulk conversation operations archive, restore, and move selected conversations', () => {
+  const { directory, store } = makeStore();
+  try {
+    const first = capture(store, 'bulk-a');
+    const second = capture(store, 'bulk-b');
+    const folder = store.createFolder({ name: 'Batch' });
+    const ids = [first.conversationId, second.conversationId];
+
+    assert.deepEqual(store.bulkMoveConversations(ids, folder.folderId), { moved: 2 });
+    assert.ok(store.getSnapshot().conversations.every((item) => item.folderId === folder.folderId));
+
+    assert.deepEqual(store.bulkSetConversationFlags(ids, { archived: true, pinned: true }), { updated: 2 });
+    let conversations = store.getSnapshot().conversations;
+    assert.ok(conversations.every((item) => Boolean(item.archivedAt) && item.pinned));
+
+    assert.deepEqual(store.bulkSetConversationFlags(ids, { archived: false }), { updated: 2 });
+    conversations = store.getSnapshot().conversations;
+    assert.ok(conversations.every((item) => !item.archivedAt && item.pinned));
+
+    assert.deepEqual(store.bulkMoveConversations(ids, null), { moved: 2 });
+    assert.ok(store.getSnapshot().conversations.every((item) => !item.folderId));
+    assert.deepEqual(store.bulkSetConversationFlags([], { archived: true }), { updated: 0 });
+  } finally {
+    store.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('conversation pinning, archiving, response pinning, and bulk delete persist', () => {
   const { directory, store } = makeStore();
   try {

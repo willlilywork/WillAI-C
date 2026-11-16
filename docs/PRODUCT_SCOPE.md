@@ -139,9 +139,20 @@ The following items are explicitly designated as Pro capabilities in the supplie
 - **Advanced Export and Print (Pro):** bulk exports, folder exports, selected-message exports, and full print templates.
 - **Unlimited References and Profiles (Pro):** unlimited reference chats and unlimited custom instruction profiles.
 
-## Implementation status — WillAI-C 0.2.0
+## Implementation status — WillAI-C 0.3.0
 
 This release adds a local workspace-organization and productivity slice on top of the browser/response foundation. The feature register above remains the complete product scope; the following lists distinguish implemented behavior from items that are not included in this release.
+
+### Implemented in 0.3.0
+
+**Folder organization and bulk conversation management**
+- Drag a conversation from the Work navigator onto a folder to file it; drop it on All conversations to move it back to Unfiled.
+- Drag a folder onto another folder to make it a subfolder, or drop it on All conversations to move it to the root level.
+- Folder moves validate the parent chain and reject self-parenting or moves that would create a cycle.
+- Edit folder names, colours, and icons from the folder navigator.
+- Archive or restore all selected conversations in one operation.
+- Move selected conversations to an existing folder or to Unfiled in one operation.
+- The navigation sidebar remains resizable.
 
 ### Implemented in 0.2.0
 
@@ -194,11 +205,10 @@ This release adds a local workspace-organization and productivity slice on top o
 
 The provider send-control acknowledgement confirms only that the page's send button was activated. It is not proof of remote acceptance or completed response capture. The manual prompt queue remains a separate feature: it inserts a queued item into the provider composer for the user to review and submit. Explicit Model Context insertion also remains insertion-only and does not submit automatically.
 
-### Not implemented in 0.2.0
+### Not implemented in 0.3.0
 
 The following items remain in the feature register but are not delivered in this release:
-- Drag-and-drop folder organisation, folder images, configurable folder colours/icons in the UI, right-side folder panel, resizable sidebar, automatic folders for Custom GPTs, automatic archive/delete execution, and cross-device sync.
-- Global search across conversations, prompts, notes, and highlights; the current conversation filter searches conversation titles and captured response text only.
+- Folder images, a right-side folder panel, automatic folders for Custom GPTs, automatic archive/delete execution, and cross-device sync.
 - Conversation tree map/PNG export, minimap, text highlights, annotations, and a full message navigator with user/assistant filters, day grouping, prompt navigation, long-chat loading controls, and full-chat find.
 - Prompt optimisation, automatic prompt queue submission, executable multi-step chains, slash autocomplete, arrow-key prompt recall, right-click prompt menus, public/community prompt discovery and sharing, smart replace, custom instruction profiles, and automatic custom instructions.
 - Advanced language/tone/model controls, copy modes, word/character counters, custom conversation width, ad filtering, send-key behaviour settings, auto splitter/summarizer, and screenshot actions.

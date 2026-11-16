@@ -3,6 +3,7 @@ name: WillAI-C Windows test build
 on:
   push:
     branches:
+      - main
       - rebuild/desktop-first-foundation
   workflow_dispatch:
 
@@ -14,10 +15,10 @@ jobs:
     name: Build and package Windows x64
     runs-on: windows-latest
     steps:
-      - name: Check out test branch
+      - name: Check out source branch
         uses: actions/checkout@v4
         with:
-          ref: rebuild/desktop-first-foundation
+          ref: ${{ github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -99,14 +100,15 @@ jobs:
               target_commitish: context.sha,
               name: 'WillAI-C Windows Test Build #' + context.runNumber,
               body: [
-                'WillAI-C 0.2.0 local-workspace feature build from rebuild/desktop-first-foundation.',
+                'WillAI-C 0.3.0 workspace-organization build from ' + context.ref + '.',
                 '',
                 'Commit: ' + context.sha,
                 '',
-                '- Windows x64 NSIS installer. Version 0.2.0.',
+                '- Windows x64 NSIS installer. Version 0.3.0.',
+                '- Includes folder drag-and-drop, nested folder moves, editable folder styling, and bulk conversation actions.',
                 '- Unsigned test build; Windows may display a SmartScreen warning.',
                 '- For evaluation only. Do not treat this as a production release.',
-                '- This build does not change or merge into main.'
+                '- Main is the acceptance branch; verify the installed application before treating this as a release.'
               ].join('\n'),
               draft: false,
               prerelease: true

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent, type DragEvent as ReactDragEvent } from 'react';
 import MarkdownIt from 'markdown-it';
 import './markdown.css';
 import WorkspaceTools from './WorkspaceTools';
@@ -387,6 +387,57 @@ function App() {
     await refreshSnapshot();
   }
 
+  async function editFolder(folder: WorkspaceFolder) {
+    const name = window.prompt('Folder name', folder.name);
+    if (name === null) return;
+    const color = window.prompt('Folder color (six-digit hex)', folder.color);
+    if (color === null) return;
+    const icon = window.prompt('Folder icon or emoji', folder.icon);
+    if (icon === null) return;
+    if (!/^#[0-9a-f]{6}$/i.test(color.trim())) {
+      setNotice('Folder color must use the format #RRGGBB.');
+      return;
+    }
+    try {
+      await window.willai.updateFolder(folder.id, { name, color: color.trim(), icon });
+      await refreshSnapshot();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not update the folder.');
+    }
+  }
+
+  async function moveFolder(folderId: string, parentId: string | null) {
+    try {
+      await window.willai.moveFolder(folderId, parentId);
+      await refreshSnapshot();
+      setNotice('Folder moved.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not move the folder.');
+    }
+  }
+
+  async function moveConversationToFolder(conversationId: string, folderId: string | null) {
+    try {
+      await window.willai.moveConversation(conversationId, folderId);
+      await refreshSnapshot();
+      setNotice(folderId ? 'Conversation moved to folder.' : 'Conversation moved to Unfiled.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not move the conversation.');
+    }
+  }
+
+  function handleFolderDrop(event: ReactDragEvent<HTMLElement>, targetFolderId: string | null) {
+    event.preventDefault();
+    event.stopPropagation();
+    const draggedFolderId = event.dataTransfer.getData('application/x-willai-folder');
+    const draggedConversationId = event.dataTransfer.getData('application/x-willai-conversation');
+    if (draggedFolderId) {
+      void moveFolder(draggedFolderId, targetFolderId);
+    } else if (draggedConversationId) {
+      void moveConversationToFolder(draggedConversationId, targetFolderId);
+    }
+  }
+
   async function deleteFolder(folder: WorkspaceFolder) {
     if (!window.confirm('Delete "' + folder.name + '"? Conversations will move to its parent folder.')) return;
     await window.willai.deleteFolder(folder.id);
@@ -406,6 +457,22 @@ function App() {
     const result = await window.willai.bulkDeleteConversations(bulkSelection);
     setBulkSelection([]);
     setNotice(result.deleted + ' conversations deleted.');
+    await refreshSnapshot();
+  }
+
+  async function archiveSelectedConversations() {
+    if (!bulkSelection.length) return;
+    const result = await window.willai.bulkSetConversationFlags(bulkSelection, { archived: !showArchived });
+    setBulkSelection([]);
+    setNotice(result.updated + (showArchived ? ' conversations restored.' : ' conversations archived.'));
+    await refreshSnapshot();
+  }
+
+  async function moveSelectedConversations(folderId: string | null) {
+    if (!bulkSelection.length) return;
+    const result = await window.willai.bulkMoveConversations(bulkSelection, folderId);
+    setBulkSelection([]);
+    setNotice(result.moved + (folderId ? ' conversations moved.' : ' conversations moved to Unfiled.'));
     await refreshSnapshot();
   }
 
@@ -460,11 +527,12 @@ function App() {
               <div className="nav-pane-heading"><span className="sidebar-kicker">WORKSPACE</span><h2>Work</h2></div>
               <div className="sidebar-section folder-section">
                 <div className="sidebar-section-heading"><span className="sidebar-kicker">FOLDERS</span><button type="button" className="sidebar-add" onClick={() => void createFolder(null)} aria-label="Create folder">＋</button></div>
-                <button type="button" className={'folder-filter' + (!folderFilter && !showArchived ? ' active' : '')} onClick={() => { setFolderFilter(null); setShowArchived(false); setActiveConversationId(null); }}><span>All conversations</span><small>{snapshot.conversations.filter((item) => !item.archivedAt).length}</small></button>
+                <button type="button" className={'folder-filter' + (!folderFilter && !showArchived ? ' active' : '')} onClick={() => { setFolderFilter(null); setShowArchived(false); setActiveConversationId(null); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }} onDrop={(event) => handleFolderDrop(event, null)}><span>All conversations</span><small>{snapshot.conversations.filter((item) => !item.archivedAt).length}</small></button>
                 {snapshot.folders.filter((folder) => !folder.parentId).map((folder) => (
                   <FolderSidebarItem key={folder.id} folder={folder} allFolders={snapshot.folders} activeId={folderFilter}
                     onSelect={(id) => { setFolderFilter(id); setShowArchived(false); setActiveConversationId(null); }}
-                    onAddChild={(id) => void createFolder(id)} onDelete={deleteFolder} />
+                    onAddChild={(id) => void createFolder(id)} onDelete={deleteFolder}
+                    onEdit={editFolder} onDropToFolder={handleFolderDrop} />
                 ))}
                 <button type="button" className={'folder-filter' + (showArchived ? ' active' : '')} onClick={() => { setShowArchived(true); setFolderFilter(null); setActiveConversationId(null); }}><span>Archived</span><small>{snapshot.conversations.filter((item) => item.archivedAt).length}</small></button>
               </div>
@@ -472,12 +540,33 @@ function App() {
               <div className="sidebar-section conversation-section">
                 <div className="sidebar-section-heading"><span className="sidebar-kicker">CONVERSATIONS</span><span className="sidebar-count">{filteredConversations.length}</span></div>
                 <label className="conversation-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" /></label>
-                {bulkSelection.length > 0 && <div className="bulk-actions"><span>{bulkSelection.length} selected</span><button type="button" onClick={() => void deleteSelectedConversations()}>Delete</button><button type="button" onClick={() => setBulkSelection([])}>Clear</button></div>}
+                {bulkSelection.length > 0 && (
+                  <div className="bulk-actions">
+                    <span>{bulkSelection.length} selected</span>
+                    <button type="button" onClick={() => void archiveSelectedConversations()}>{showArchived ? 'Restore' : 'Archive'}</button>
+                    <select aria-label="Move selected conversations to a folder" defaultValue=""
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        if (!value) return;
+                        void moveSelectedConversations(value === '__unfiled__' ? null : value);
+                        event.currentTarget.value = '';
+                      }}>
+                      <option value="" disabled>Move to…</option>
+                      <option value="__unfiled__">Unfiled</option>
+                      {snapshot.folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+                    </select>
+                    <button type="button" onClick={() => void deleteSelectedConversations()}>Delete</button>
+                    <button type="button" onClick={() => setBulkSelection([])}>Clear</button>
+                  </div>
+                )}
                 <div className="conversation-list">
                   {filteredConversations.map((conversation) => (
                     <div className="conversation-row" key={conversation.id}>
                       <input type="checkbox" checked={bulkSelection.includes(conversation.id)} onChange={() => void toggleConversationSelection(conversation.id)} aria-label={'Select ' + conversation.title} />
-                      <button type="button" className={'conversation-link' + (activeConversationId === conversation.id ? ' active' : '')} onClick={() => openConversation(conversation)} title={conversation.title}>
+                      <button type="button" draggable className={'conversation-link' + (activeConversationId === conversation.id ? ' active' : '')} onDragStart={(event) => {
+                        event.dataTransfer.setData('application/x-willai-conversation', conversation.id);
+                        event.dataTransfer.effectAllowed = 'move';
+                      }} onClick={() => openConversation(conversation)} title={conversation.title}>
                         <span className={'provider-dot ' + conversation.provider} /><span className="conversation-link-main"><span className="conversation-link-title">{conversation.pinned ? '★ ' : ''}{conversation.title}</span><small>{providerLabels[conversation.provider]} · {conversation.responses.length} responses · {new Date(conversation.updatedAt).toLocaleDateString()}</small></span>
                       </button>
                       <button type="button" className="conversation-row-more" title={conversation.pinned ? 'Unpin conversation' : 'Pin conversation'} onClick={() => void setConversationFlag(conversation.id, { pinned: !conversation.pinned })}>{conversation.pinned ? '★' : '☆'}</button>
@@ -868,6 +957,8 @@ function FolderSidebarItem({
   onSelect,
   onAddChild,
   onDelete,
+  onEdit,
+  onDropToFolder,
   depth = 0,
 }: {
   folder: WorkspaceFolder;
@@ -876,16 +967,30 @@ function FolderSidebarItem({
   onSelect: (id: string) => void;
   onAddChild: (id: string) => void;
   onDelete: (folder: WorkspaceFolder) => void;
+  onEdit: (folder: WorkspaceFolder) => void;
+  onDropToFolder: (event: ReactDragEvent<HTMLElement>, targetFolderId: string | null) => void;
   depth?: number;
 }) {
   const children = allFolders.filter((item) => item.parentId === folder.id);
+  const [dragOver, setDragOver] = useState(false);
   return (
     <div className="folder-tree-item">
-      <div className={'folder-filter-row' + (activeId === folder.id ? ' active' : '')}>
+      <div
+        className={'folder-filter-row' + (activeId === folder.id ? ' active' : '') + (dragOver ? ' drop-target' : '')}
+        draggable
+        onDragStart={(event) => {
+          event.dataTransfer.setData('application/x-willai-folder', folder.id);
+          event.dataTransfer.effectAllowed = 'move';
+        }}
+        onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(event) => { setDragOver(false); onDropToFolder(event, folder.id); }}
+      >
         <button type="button" className="folder-filter" style={{ paddingLeft: 10 + depth * 13, borderLeftColor: folder.color }} onClick={() => onSelect(folder.id)}>
           <span>{folder.icon} {folder.name}</span>
           {children.length > 0 && <small>{children.length} subfolders</small>}
         </button>
+        <button type="button" className="folder-row-action" title="Edit folder name, color and icon" aria-label={'Edit ' + folder.name} onClick={() => onEdit(folder)}>✎</button>
         <button type="button" className="folder-row-action" title="Add subfolder" onClick={() => onAddChild(folder.id)}>＋</button>
         <button type="button" className="folder-row-action" title="Delete folder" onClick={() => onDelete(folder)}>×</button>
       </div>
@@ -898,6 +1003,8 @@ function FolderSidebarItem({
           onSelect={onSelect}
           onAddChild={onAddChild}
           onDelete={onDelete}
+          onEdit={onEdit}
+          onDropToFolder={onDropToFolder}
           depth={depth + 1}
         />
       ))}
