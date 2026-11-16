@@ -1,6 +1,6 @@
 {
   "name": "willai-c",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "WillAI-C — a workspace-centered AI productivity desktop app with an integrated Chromium browser.",
   "main": "src/main/index.cjs",

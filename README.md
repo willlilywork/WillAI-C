@@ -9,8 +9,8 @@ WillAI-C uses the Chromium engine bundled by Electron. It does not launch or wra
 ## Current implementation
 
 - New Conversation is the default starting surface.
-- A request submitted from New Conversation is routed through the selected provider's existing signed-in session. WillAI-C reuses or opens an in-app provider tab, submits through its isolated adapter, and keeps that browser surface hidden while the workspace remains visible.
-- ChatGPT, Claude, and DeepSeek provider adapters expose readiness and capture diagnostics.
+- A request submitted from New Conversation is routed through the selected provider's existing signed-in session. WillAI-C keeps the provider page hidden and uses CDP text input against its focused composer rather than relying on native OS focus of a hidden view. It verifies the complete prompt is present before activating the provider's Send control.
+- ChatGPT, Claude, and DeepSeek provider adapters expose readiness and capture diagnostics. The selectors include the current ChatGPT assistant-markdown/composer structure, Claude's `.font-claude-response` content, and DeepSeek's `.ds-markdown` responses.
 - Assistant responses are monitored, converted to Markdown text, validated in the main process, and saved as Original Responses in the local workspace. Markdown content is parsed into editable, nested Working Nodes.
 - The integrated Browser dock provides tabs, address/search, navigation, persistent site sessions, permission prompts, and download dialogs.
 - Local workspace tools include folders and subfolders, editable folder names/colours/icons, drag-and-drop filing and nesting, conversation pin/archive, bulk archive/restore/move/delete actions, a Prompt Manager with variables/favourites/history and JSON import/export, a manual prompt queue, global and conversation notes, conversation references, bookmarks/history, and conversation exports.
@@ -30,7 +30,7 @@ There are two different submission paths:
 - **New Conversation — Send request:** WillAI-C inserts the prompt into the selected provider composer and activates the provider's enabled send control. The local acknowledgement confirms that the page's send control was clicked; it does not prove that the remote service accepted the request or completed a response. Response capture is a separate step.
 - **Insert shared Model Context / prompt-queue item:** content is inserted into the active provider composer for review. This action does not submit it. Prompt-queue items are still submitted manually, one at a time.
 
-Live compatibility with current signed-in provider pages remains to be verified manually. Automated checks do not establish that provider selectors continue to match their live interfaces or that a complete response is reliably captured.
+The provider pipeline now avoids Chromium background timer throttling for hidden provider views, uses CDP-first insertion, rejects partial prompt insertion, and includes DOM fixtures for the current ChatGPT and Claude response structures. The automated tests verify these application-side paths; they do not emulate provider authentication, remote service acceptance, rate limits, or provider-side failures.
 
 ## Local data
 

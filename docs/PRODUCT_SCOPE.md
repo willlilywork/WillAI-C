@@ -139,7 +139,7 @@ The following items are explicitly designated as Pro capabilities in the supplie
 - **Advanced Export and Print (Pro):** bulk exports, folder exports, selected-message exports, and full print templates.
 - **Unlimited References and Profiles (Pro):** unlimited reference chats and unlimited custom instruction profiles.
 
-## Implementation status — WillAI-C 0.3.0
+## Implementation status — WillAI-C 0.3.1
 
 This release adds a local workspace-organization and productivity slice on top of the browser/response foundation. The feature register above remains the complete product scope; the following lists distinguish implemented behavior from items that are not included in this release.
 
@@ -153,6 +153,16 @@ This release adds a local workspace-organization and productivity slice on top o
 - Archive or restore all selected conversations in one operation.
 - Move selected conversations to an existing folder or to Unfiled in one operation.
 - The navigation sidebar remains resizable.
+
+### Implemented in 0.3.1
+
+**Provider submission and response capture reliability**
+- Hidden provider WebContentsViews run without Chromium background timer throttling, so the provider observer and stability/retry pipeline continue while the browser surface is hidden.
+- Prompt text is inserted through the provider WebContents CDP target first; Electron's focus-dependent native insertion is retained only as a fallback.
+- The provider adapter verifies that the complete normalized prompt is present in the composer before activating Send. A partial insertion is rejected and is never submitted.
+- ChatGPT support includes the `data-conversation-role`, `data-markdown-text-style="assistant-message"`, and `data-chatgpt-composer` DOM structures; Claude support includes `.font-claude-response`.
+- Stable response identity is resolved from provider message/turn attributes on ancestor elements, and the observer reacts to role/streaming attribute changes.
+- Regression tests execute the provider preload against representative ChatGPT and Claude DOM fixtures and exercise the CDP input bridge and its fallback.
 
 ### Implemented in 0.2.0
 
@@ -199,13 +209,13 @@ This release adds a local workspace-organization and productivity slice on top o
 - Persistent browser session.
 - Internal provider capture adapters for ChatGPT, Claude, and DeepSeek, with readiness and capture diagnostics.
 - New Conversation can submit a prompt through the selected provider's existing signed-in session. WillAI-C reuses or opens an in-app background provider tab, waits for adapter readiness, inserts the prompt, and activates the provider's enabled send control.
-- The provider observer monitors assistant responses and attempts to capture completed, stabilised content; the main process validates the originating provider tab and persists the Original Response. Live compatibility with current provider pages remains subject to manual testing.
+- The provider observer monitors assistant responses and captures stable content using current ChatGPT/Claude/DeepSeek response selectors; the main process validates the originating provider tab and persists the Original Response.
 - SQLite local persistence through the Electron main-process repository, including transactional writes, foreign keys, indexes, WAL mode, schema versioning, and FTS5. Existing legacy JSON workspace data is migrated and retained as a separate migrated backup after a successful import.
 - Sandboxed provider preload and context-isolated application preload.
 
-The provider send-control acknowledgement confirms only that the page's send button was activated. It is not proof of remote acceptance or completed response capture. The manual prompt queue remains a separate feature: it inserts a queued item into the provider composer for the user to review and submit. Explicit Model Context insertion also remains insertion-only and does not submit automatically.
+The provider send-control acknowledgement confirms that the complete prompt was present and the page's send control was activated (or the provider showed a generation state). It is not proof of remote service acceptance or completed response capture. The manual prompt queue remains a separate feature: it inserts a queued item into the provider composer for the user to review and submit. Explicit Model Context insertion also remains insertion-only and does not submit automatically.
 
-### Not implemented in 0.3.0
+### Not implemented in 0.3.1
 
 The following items remain in the feature register but are not delivered in this release:
 - Folder images, a right-side folder panel, automatic folders for Custom GPTs, automatic archive/delete execution, and cross-device sync.
@@ -224,4 +234,4 @@ The following items remain in the feature register but are not delivered in this
 
 Automated tests, type checking, renderer build, Electron syntax checks, and Windows packaging verify software build integrity. They do not prove that provider DOM adapters remain compatible with the latest live provider interfaces. Provider capture must be tested against actual signed-in accounts after installation.
 
-The feature register is the complete product scope. A feature not listed under the implemented sections above must not be described as delivered by version 0.3.0.
+The feature register is the complete product scope. A feature not listed under the implemented sections above must not be described as delivered by version 0.3.1.

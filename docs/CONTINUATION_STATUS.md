@@ -2,7 +2,7 @@
 
 **Snapshot:** 2026-11-15  
 **Repository:** https://github.com/willlilywork/WillAI-C  
-**Current product version:** 0.3.0
+**Current product version:** 0.3.1
 
 ## Branch and acceptance policy
 
@@ -11,6 +11,7 @@
 - PR #1 was merged into `main` on 2026-11-15. Merge commit: `2004144618e712a3548038e118eaa1499ddc940d`.
 - PR #10 (0.3.0 folder organization and bulk actions) was squash-merged into the integration branch as `7752ec64aef46ad869d7f8b89047779aedd81c72` and is included in `main` through PR #1.
 - PR #9 (background provider submission) and PR #8 (SQLite/FTS5) are already included in the integration branch.
+- PR #11 (`fix/provider-submission-and-capture`) is the current provider reliability repair. It is targeted at `main` and includes the 0.3.1 fixes described below.
 - Do not create another parallel implementation from the old initial snapshot. Continue from `main`, which is the acceptance and source-of-truth branch. The integration branch is now one merge commit behind `main`.
 
 ## Product and architecture — preserve these decisions
@@ -31,7 +32,7 @@ WillAI-C is a **workspace-centered desktop application** with an integrated Chro
 
 Read `docs/ARCHITECTURE.md` for module/security boundaries and `docs/PRODUCT_SCOPE.md` for the complete feature register. The register describes total product scope, not a claim that every feature is present.
 
-## Implemented foundation in 0.3.0
+## Implemented foundation in 0.3.1
 
 ### Workspace and browser
 - Workspace-first shell with New Conversation as startup, global navigation, contextual sidebar, resizable navigation and context panels.
@@ -41,10 +42,11 @@ Read `docs/ARCHITECTURE.md` for module/security boundaries and `docs/PRODUCT_SCO
 
 ### Responses and provider connection
 - Internal provider capture adapters for ChatGPT, Claude, and DeepSeek.
-- Background submission path using the user's existing signed-in provider page; send initiation, remote response completion, capture and persistence are separate states.
+- Background submission uses CDP `Input.insertText` on the selected provider's focused composer, not native OS focus of the hidden WebContentsView. The full normalized composer text is checked before Send. Chromium background throttling is disabled for this shared BrowserWindow so the hidden provider observer/retry pipeline continues to execute.
 - Captured assistant output stored as Original Responses; Markdown parsing creates nested editable Working Nodes.
 - Node editing, creation, deletion, sibling/child operations, reordering, and explicit Model Context selection.
 - A manual "Extract loaded responses" rescan action for currently rendered conversation messages.
+- Provider selectors cover ChatGPT's `data-conversation-role` / `data-markdown-text-style="assistant-message"` app-shell, Claude's `.font-claude-response`, and DeepSeek's `.ds-markdown` response content.
 - **Important verification boundary:** live provider DOM compatibility and end-to-end ChatGPT / Claude / DeepSeek operation still require manual signed-in testing. A send-button click acknowledgement is not proof of remote acceptance or completed capture.
 
 ### Local productivity
@@ -65,6 +67,33 @@ Read `docs/ARCHITECTURE.md` for module/security boundaries and `docs/PRODUCT_SCO
 - Archive/restore selected conversations as one operation.
 - Move selected conversations to a folder or Unfiled as one operation.
 - Added store regression tests for hierarchy cycles and batch actions, plus renderer/IPC wiring checks.
+
+## Provider reliability repair — 0.3.1
+
+The repeated Send/capture failures were traced to application-side weaknesses, not just to a missing selector:
+
+1. Provider pages are deliberately hidden while New Conversation remains visible, but Chromium background throttling was still enabled. The page-side capture observer and retry/stability timers could therefore be delayed while the view was hidden.
+2. Prompt insertion used `webContents.focus() + webContents.insertText()` as the primary path. That depends on native focus of a hidden WebContentsView.
+3. The adapter's ChatGPT/Claude DOM assumptions had drifted from newer page structures. ChatGPT now exposes `data-conversation-role`, `data-markdown-text-style="assistant-message"`, and a `data-chatgpt-composer` ProseMirror composer in some app-shell variants; Claude response content uses `.font-claude-response`.
+4. Composer normalization had double-escaped regex patterns for non-breaking spaces and carriage returns, so the comparison did not normalize those characters.
+
+**Repair in PR #11**
+- Set provider WebContentsView background throttling off so hidden provider page timers and observers continue executing. Electron documents that this setting also affects other WebContents hosted by the same BrowserWindow; this is intentional for the workspace/provider window.
+- Use CDP `Input.insertText` as the primary hidden-page insertion path; retain native `insertText` only as a fallback.
+- Expand provider adapter readiness and request submission timeouts to cover the full retry path.
+- Add current ChatGPT/Claude selectors and stable turn/message identity lookup through ancestors.
+- Observe relevant DOM attribute changes as well as text and child mutations.
+- Compare the complete normalized composer text to the full request before clicking Send. Incomplete text is rejected.
+- Correct whitespace normalization for non-breaking spaces and carriage returns.
+
+### Verification on the repair branch
+GitHub Actions run #121 passed on repair head `26f59c21b0836532edcee2101af0c1aab56e0062`:
+- `npm test`, including mocked CDP input/fallback and provider-preload DOM fixtures for ChatGPT and Claude.
+- `npm run typecheck`.
+- `npm run build`.
+- Electron main/preload syntax checks.
+
+These tests validate the app-side bridge and representative DOM contract; they do not simulate a private signed-in provider account or remote-service acceptance.
 
 ## Verification state
 
