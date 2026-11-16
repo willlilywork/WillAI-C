@@ -388,6 +388,9 @@ function createCapturePreloadHarness(hostname, selector, attributeName, attribut
       if (value.includes('.font-claude-response')) {
         return String(this.attributes.class || '').split(/\s+/).includes('font-claude-response');
       }
+      if (value.includes('.ds-markdown')) {
+        return String(this.attributes.class || '').split(/\s+/).includes('ds-markdown');
+      }
       return false;
     },
     closest() { return null; },
@@ -465,6 +468,12 @@ test('current ChatGPT and Claude response bodies become captured Original Respon
       attributeName: 'class',
       attributeValue: 'font-claude-response',
     },
+    {
+      hostname: 'chat.deepseek.com',
+      selector: '.ds-markdown',
+      attributeName: 'class',
+      attributeValue: 'ds-markdown',
+    },
   ];
   for (const fixture of cases) {
     const harness = createCapturePreloadHarness(
@@ -474,7 +483,9 @@ test('current ChatGPT and Claude response bodies become captured Original Respon
       fixture.attributeValue,
     );
     const payload = await harness.waitForCapture();
-    assert.equal(payload.provider, fixture.hostname === 'chatgpt.com' ? 'chatgpt' : 'claude');
+    assert.equal(payload.provider, fixture.hostname === 'chatgpt.com'
+      ? 'chatgpt'
+      : fixture.hostname === 'claude.ai' ? 'claude' : 'deepseek');
     assert.equal(payload.sourceMessageId.includes('data-turn-key'), true);
     assert.equal(payload.text, 'Captured assistant answer from current DOM.');
     harness.emit('willai:provider-capture-result', { captureId: payload.captureId, ok: true });
