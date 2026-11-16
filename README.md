@@ -78,6 +78,6 @@ The scripts rebuild the native SQLite module for the correct Node.js or Electron
 
 The complete supplied feature list and its implementation boundaries are recorded in [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md). The architecture and security boundaries are recorded in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The latest verified continuation state and outstanding manual tests are recorded in [docs/CONTINUATION_STATUS.md](docs/CONTINUATION_STATUS.md).
 
-On implementation commit f91e1c3ea628, GitHub Actions Linux checks passed and the Windows x64 workflow built and published a test installer. These are automated build results, not a claim that the installer has been manually installed and exercised.
+GitHub Actions runs the automated test suite, TypeScript checks, production renderer build, Electron syntax checks, and a Windows x64 installer workflow for the acceptance branch. Passing these checks confirms build integrity and packaging, not that the installer has been manually installed or that live provider sessions have been validated.
 
 Before treating provider integration as validated, test real signed-in ChatGPT, Claude, and DeepSeek sessions, confirm prompt submission and completed-response capture, compare captured Markdown with each provider's Copy output, and verify persistence after restarting the packaged Windows application.
