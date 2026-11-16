@@ -1,9 +1,7 @@
 use std::rc::Rc;
 
 use windows_reactor::*;
-use windows_webview::{
-    EventRegistration, IntegrationError, Result, WebView, webview_result,
-};
+use windows_webview::{EventRegistration, Result, WebView, webview_result};
 
 use crate::browser::{Provider, normalize_address};
 
