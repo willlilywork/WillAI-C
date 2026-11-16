@@ -116,7 +116,7 @@ const { ipcRenderer } = require('electron');
   function ignored(element) {
     return element.matches(
       'button, svg, script, style, nav, footer, [aria-hidden="true"], '
-      + '[class*="sr-only"], [class*="visually-hidden"], '
+      + '[class~="sr-only"], [class~="visually-hidden"], '
       + '[data-testid*="copy"], [data-testid*="feedback"], '
       + '[data-testid*="toolbar"], [role="toolbar"]',
     ) || Boolean(element.closest('[aria-hidden="true"], [class~="sr-only"], [class~="visually-hidden"], [data-testid*="toolbar"]'));
