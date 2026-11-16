@@ -12,6 +12,7 @@
 - PR #10 (0.3.0 folder organization and bulk actions) was squash-merged into the integration branch as `7752ec64aef46ad869d7f8b89047779aedd81c72` and is included in `main` through PR #1.
 - PR #9 (background provider submission) and PR #8 (SQLite/FTS5) are already included in the integration branch.
 - PR #11 — [WillAI-C 0.3.1 provider reliability repair](https://github.com/willlilywork/WillAI-C/pull/11) — was squash-merged into `main` as `05f1e35d870d8da1a28a18e4387a64b3ff4674ad`.
+- Windows installer for that merge commit was published as [windows-test-47](https://github.com/willlilywork/WillAI-C/releases/tag/windows-test-47).
 - Do not create another parallel implementation from the old initial snapshot. Continue from `main`, which is the acceptance and source-of-truth branch. The integration branch is now one merge commit behind `main`.
 
 ## Product and architecture — preserve these decisions
@@ -104,13 +105,18 @@ GitHub Actions run #125 passed on PR #11 head `3903344c57d718798b486175f764ccc57
 - `npm run build`
 - Electron main/preload syntax checks
 
-### CI on main
+### CI and Windows package on main
 PR #11 was squash-merged into `main` as `05f1e35d870d8da1a28a18e4387a64b3ff4674ad`.
 - Main Linux CI run #126 completed successfully on that exact commit.
-- Windows x64 build run #47 was triggered by the same `main` push. At the time of this handoff update, its automated tests, typecheck, renderer build, Electron syntax checks, and SQLite Electron rebuild had passed; the Windows installer packaging step was still running. Do not link the previous 0.3.0 installer as the 0.3.1 build.
+- Windows x64 build run #47 completed successfully on the same commit. Its automated tests, typecheck, renderer build, Electron syntax checks, SQLite Electron rebuild, installer packaging, SHA-256 generation, artifact upload, and release publication all passed.
+- Installer: [WillAI-C-0.3.1-Setup.exe](https://github.com/willlilywork/WillAI-C/releases/download/windows-test-47/WillAI-C-0.3.1-Setup.exe)
+- Release page: [windows-test-47](https://github.com/willlilywork/WillAI-C/releases/tag/windows-test-47)
+- GitHub asset SHA-256: `9dbab9602edfb5519f08be9456986bc6b92804f8ac87f2a837418d81dd2521d4`
+
+The installer was built from `main` at merge commit `05f1e35d870d8da1a28a18e4387a64b3ff4674ad`, not from an earlier 0.3.0 branch.
 
 ### Verification boundary
-The automated tests execute the application-side provider preload and IPC path against representative DOM fixtures. They do not authenticate with an actual private provider account or test remote service availability/rate limits. This does not negate the code-path fixes above; it defines what the local CI environment can and cannot prove.
+The automated tests execute the application-side provider preload and IPC path against representative ChatGPT, Claude, and DeepSeek DOM fixtures, and exercise CDP insertion and partial-prompt rejection. Windows CI additionally confirms the packaged installer was produced and published. These checks establish the repaired local code paths and package build; they do not authenticate to an actual private provider account or exercise remote service availability/rate limits.
 
 
 ## Product-scope items still outstanding
