@@ -166,7 +166,9 @@ class BrowserController {
         webSecurity: true,
         allowRunningInsecureContent: false,
         // Provider pages continue processing while their WebContentsView is
-        // hidden behind the workspace. Keep capture/retry timers unthrottled.
+        // hidden behind the workspace. Electron applies this preference across
+        // WebContents in the host BrowserWindow; that tradeoff is intentional
+        // because the hidden provider and workspace share this window.
         backgroundThrottling: false,
       },
     });
