@@ -115,6 +115,11 @@ try {
 
   for (const size of [{ w: 1280, h: 800 }, { w: 1024, h: 768 }, { w: 900, h: 700 }]) {
     const p = await startPage(size.w, size.h);
+    await clickDest(p, 'home');
+    assert.ok(await p.getByRole('heading', { name: 'Continue working' }).isVisible());
+    await assertNoHorizontalOverflow(p, size.w);
+    await shot(p, 'v2-responsive-home-' + size.w + 'x' + size.h + '.png');
+    await clickDest(p, 'newchat');
     await shot(p, 'v2-responsive-new-conversation-' + size.w + 'x' + size.h + '.png');
     await clickDest(p, 'tree');
     await shot(p, 'v2-responsive-tree-' + size.w + 'x' + size.h + '.png');
