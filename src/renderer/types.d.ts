@@ -191,10 +191,13 @@ declare global {
       setResponsePinned(responseId: string, pinned: boolean): Promise<{ok: boolean}>;
       createFolder(input: {name: string; parentId?: string | null; color?: string; icon?: string}): Promise<{folderId: string}>;
       updateFolder(folderId: string, patch: {name?: string; color?: string; icon?: string}): Promise<{ok: boolean}>;
+      moveFolder(folderId: string, parentId: string | null): Promise<{ok: boolean; moved?: boolean}>;
       deleteFolder(folderId: string): Promise<{ok: boolean}>;
       moveConversation(conversationId: string, folderId: string | null): Promise<{ok: boolean}>;
       setConversationFlags(conversationId: string, patch: {pinned?: boolean; archived?: boolean; temporary?: boolean}): Promise<{ok: boolean}>;
       bulkDeleteConversations(ids: string[]): Promise<{deleted: number}>;
+      bulkSetConversationFlags(ids: string[], patch: {pinned?: boolean; archived?: boolean; temporary?: boolean}): Promise<{updated: number}>;
+      bulkMoveConversations(ids: string[], folderId: string | null): Promise<{moved: number}>;
       savePrompt(input: Partial<WorkspacePrompt> & {title: string; content: string}): Promise<{promptId: string}>;
       deletePrompt(promptId: string): Promise<{ok: boolean}>;
       setPromptFavorite(promptId: string, favorite: boolean): Promise<{ok: boolean}>;
