@@ -42,10 +42,11 @@ Read `docs/ARCHITECTURE.md` for module/security boundaries and `docs/PRODUCT_SCO
 
 ### Responses and provider connection
 - Internal provider capture adapters for ChatGPT, Claude, and DeepSeek.
-- Background submission path using the user's existing signed-in provider page; send initiation, remote response completion, capture and persistence are separate states.
+- Background submission uses CDP `Input.insertText` on the selected provider's focused composer, not native OS focus of the hidden WebContentsView. The full normalized composer text is checked before Send. Chromium background throttling is disabled for this shared BrowserWindow so the hidden provider observer/retry pipeline continues to execute.
 - Captured assistant output stored as Original Responses; Markdown parsing creates nested editable Working Nodes.
 - Node editing, creation, deletion, sibling/child operations, reordering, and explicit Model Context selection.
 - A manual "Extract loaded responses" rescan action for currently rendered conversation messages.
+- Provider selectors cover ChatGPT's `data-conversation-role` / `data-markdown-text-style="assistant-message"` app-shell, Claude's `.font-claude-response`, and DeepSeek's `.ds-markdown` response content.
 - **Important verification boundary:** live provider DOM compatibility and end-to-end ChatGPT / Claude / DeepSeek operation still require manual signed-in testing. A send-button click acknowledgement is not proof of remote acceptance or completed capture.
 
 ### Local productivity
@@ -94,7 +95,7 @@ GitHub Actions run #121 passed on repair head `26f59c21b0836532edcee2101af0c1aab
 
 These tests validate the app-side bridge and representative DOM contract; they do not simulate a private signed-in provider account or remote-service acceptance.
 
-## Verification state## Verification state
+## Verification state
 
 GitHub Actions run #106 passed on PR #10 head `e9284bdb6060c455c69600dc62335ac32afd2175`:
 - `npm test`
