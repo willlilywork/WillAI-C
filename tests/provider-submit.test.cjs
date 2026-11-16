@@ -365,3 +365,118 @@ test('provider preload submits only after the complete prompt is present', async
   assert.equal(result.ok, true);
   assert.equal(harness.clickCount, 1);
 });
+
+
+function createCapturePreloadHarness(hostname, selector, attributeName, attributeValue) {
+  const source = fs.readFileSync(path.join(root, 'src/main/provider-capture-preload.cjs'), 'utf8');
+  const listeners = new Map();
+  const sent = [];
+  const candidate = {
+    nodeType: 1,
+    tagName: 'P',
+    childNodes: [{ nodeType: 3, nodeValue: 'Captured assistant answer from current DOM.' }],
+    parentElement: null,
+    isConnected: true,
+    attributes: {
+      [attributeName]: attributeValue,
+      'data-turn-key': 'fixture-turn-2026',
+    },
+    matches(value) {
+      if (value.includes('[data-markdown-text-style="assistant-message"]')) {
+        return this.attributes['data-markdown-text-style'] === 'assistant-message';
+      }
+      if (value.includes('.font-claude-response')) {
+        return String(this.attributes.class || '').split(/\s+/).includes('font-claude-response');
+      }
+      return false;
+    },
+    closest() { return null; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    getAttribute(name) { return this.attributes[name] ?? null; },
+    contains(other) { return other === this; },
+  };
+  const document = {
+    readyState: 'complete',
+    documentElement: {},
+    querySelectorAll(value) { return value === selector ? [candidate] : []; },
+  };
+  const ipcRenderer = {
+    on(channel, callback) { listeners.set(channel, callback); },
+    send(channel, payload) { sent.push({ channel, payload }); },
+  };
+  class FakeMutationObserver { observe() {} disconnect() {} }
+  const fastTimeout = (callback, _delay, ...args) => setTimeout(callback, 5, ...args);
+  const context = {
+    require: () => ({ ipcRenderer }),
+    ipcRenderer,
+    location: { hostname, href: 'https://' + hostname + '/' },
+    document,
+    window: { crypto: { randomUUID: () => 'fixture-capture-id' } },
+    HTMLElement: class HTMLElement {},
+    HTMLTextAreaElement: class HTMLTextAreaElement {},
+    HTMLInputElement: class HTMLInputElement {},
+    Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 },
+    MutationObserver: FakeMutationObserver,
+    setTimeout: fastTimeout,
+    clearTimeout,
+    Date,
+    String,
+    Array,
+    Map,
+    Set,
+    WeakMap,
+    Promise,
+    RegExp,
+    Math,
+  };
+  // Use the same HTMLElement constructor for the candidate that the preload sees.
+  const Element = context.HTMLElement;
+  Object.setPrototypeOf(candidate, Element.prototype);
+  vm.runInNewContext(source, context, { filename: 'provider-capture-preload.cjs' });
+
+  return {
+    sent,
+    emit(channel, payload) {
+      const callback = listeners.get(channel);
+      assert.ok(callback, 'listener was registered for ' + channel);
+      callback({}, payload);
+    },
+    async waitForCapture() {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const capture = sent.find((item) => item.channel === 'willai:provider-response');
+      assert.ok(capture, 'provider adapter captured a response');
+      return capture.payload;
+    },
+  };
+}
+
+test('current ChatGPT and Claude response bodies become captured Original Response payloads', async () => {
+  const cases = [
+    {
+      hostname: 'chatgpt.com',
+      selector: '[data-markdown-text-style="assistant-message"]',
+      attributeName: 'data-markdown-text-style',
+      attributeValue: 'assistant-message',
+    },
+    {
+      hostname: 'claude.ai',
+      selector: '.font-claude-response',
+      attributeName: 'class',
+      attributeValue: 'font-claude-response',
+    },
+  ];
+  for (const fixture of cases) {
+    const harness = createCapturePreloadHarness(
+      fixture.hostname,
+      fixture.selector,
+      fixture.attributeName,
+      fixture.attributeValue,
+    );
+    const payload = await harness.waitForCapture();
+    assert.equal(payload.provider, fixture.hostname === 'chatgpt.com' ? 'chatgpt' : 'claude');
+    assert.equal(payload.sourceMessageId.includes('data-turn-key'), true);
+    assert.equal(payload.text, 'Captured assistant answer from current DOM.');
+    harness.emit('willai:provider-capture-result', { captureId: payload.captureId, ok: true });
+  }
+});
