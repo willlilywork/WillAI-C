@@ -123,6 +123,10 @@ function registerRendererIpc() {
     assertTrustedRenderer(event);
     return store.updateFolder(String(folderId), patch || {});
   });
+  ipcMain.handle('willai:move-folder', (event, folderId, parentId) => {
+    assertTrustedRenderer(event);
+    return store.moveFolder(String(folderId), parentId ? String(parentId) : null);
+  });
   ipcMain.handle('willai:delete-folder', (event, folderId) => {
     assertTrustedRenderer(event);
     return store.deleteFolder(String(folderId));
@@ -134,6 +138,14 @@ function registerRendererIpc() {
   ipcMain.handle('willai:set-conversation-flags', (event, conversationId, patch) => {
     assertTrustedRenderer(event);
     return store.setConversationFlags(String(conversationId), patch || {});
+  });
+  ipcMain.handle('willai:bulk-set-conversation-flags', (event, ids, patch) => {
+    assertTrustedRenderer(event);
+    return store.bulkSetConversationFlags(ids, patch || {});
+  });
+  ipcMain.handle('willai:bulk-move-conversations', (event, ids, folderId) => {
+    assertTrustedRenderer(event);
+    return store.bulkMoveConversations(ids, folderId ? String(folderId) : null);
   });
   ipcMain.handle('willai:bulk-delete-conversations', (event, ids) => {
     assertTrustedRenderer(event);
