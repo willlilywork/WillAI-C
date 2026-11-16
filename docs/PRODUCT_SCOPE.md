@@ -224,4 +224,4 @@ The following items remain in the feature register but are not delivered in this
 
 Automated tests, type checking, renderer build, Electron syntax checks, and Windows packaging verify software build integrity. They do not prove that provider DOM adapters remain compatible with the latest live provider interfaces. Provider capture must be tested against actual signed-in accounts after installation.
 
-The feature register is the complete product scope. A feature not listed under the implemented sections above must not be described as delivered by version 0.2.0.
+The feature register is the complete product scope. A feature not listed under the implemented sections above must not be described as delivered by version 0.3.0.
