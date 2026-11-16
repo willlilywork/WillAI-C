@@ -5,7 +5,7 @@ use windows_webview::{
     EventRegistration, IntegrationError, Result, WebView, webview_result,
 };
 
-use crate::browser::{normalize_address, Provider};
+use crate::browser::{Provider, normalize_address};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Surface {
@@ -208,13 +208,25 @@ impl WillAiApp {
             .children((
                 Button::new()
                     .on_click(context.message(Message::SelectProvider(Provider::ChatGPT)))
-                    .content(if self.provider == Provider::ChatGPT { "✓ ChatGPT" } else { "ChatGPT" }),
+                    .content(if self.provider == Provider::ChatGPT {
+                        "✓ ChatGPT"
+                    } else {
+                        "ChatGPT"
+                    }),
                 Button::new()
                     .on_click(context.message(Message::SelectProvider(Provider::Claude)))
-                    .content(if self.provider == Provider::Claude { "✓ Claude" } else { "Claude" }),
+                    .content(if self.provider == Provider::Claude {
+                        "✓ Claude"
+                    } else {
+                        "Claude"
+                    }),
                 Button::new()
                     .on_click(context.message(Message::SelectProvider(Provider::DeepSeek)))
-                    .content(if self.provider == Provider::DeepSeek { "✓ DeepSeek" } else { "DeepSeek" }),
+                    .content(if self.provider == Provider::DeepSeek {
+                        "✓ DeepSeek"
+                    } else {
+                        "DeepSeek"
+                    }),
             ));
 
         StackPanel::new()
@@ -290,9 +302,9 @@ impl WillAiApp {
             .rows([GridLength::Auto, GridLength::STAR, GridLength::Auto])
             .children((
                 toolbar,
-                Border::new()
-                    .grid_row(1)
-                    .content(webview_result(context.callback(Message::BrowserInitialized))),
+                Border::new().grid_row(1).content(webview_result(
+                    context.callback(Message::BrowserInitialized),
+                )),
                 TextBlock::new()
                     .grid_row(2)
                     .margin(Thickness::uniform(8.0))

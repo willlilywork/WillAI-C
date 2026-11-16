@@ -62,7 +62,7 @@ pub fn normalize_address(input: &str) -> Result<String, &'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_address, Provider};
+    use super::{Provider, normalize_address};
 
     #[test]
     fn providers_have_explicit_start_pages() {
