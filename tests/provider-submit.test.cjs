@@ -79,3 +79,31 @@ test('capture status panel wraps its explicit extraction action and guidance', (
   const css = fs.readFileSync(path.join(root, 'src/renderer/styles.css'), 'utf8');
   assert.ok(css.includes('.capture-status-panel { flex-wrap:wrap; }'));
 });
+
+
+test('provider prompt insertion uses Electron native text input after focusing the composer', () => {
+  const browser = fs.readFileSync(path.join(root, 'src/main/browser.cjs'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'src/main/index.cjs'), 'utf8');
+  const preload = fs.readFileSync(path.join(root, 'src/main/provider-capture-preload.cjs'), 'utf8');
+  assert.ok(browser.includes('webContents.insertText(pending.content)'));
+  assert.ok(browser.includes('handleProviderComposerReady'));
+  assert.ok(main.includes("ipcMain.on('willai:provider-composer-ready'"));
+  assert.ok(preload.includes("ipcRenderer.send('willai:provider-composer-ready'"));
+  assert.ok(preload.includes("ipcRenderer.on('willai:provider-text-inserted'"));
+});
+
+test('ChatGPT current assistant message and composer selectors are supported', () => {
+  const preload = fs.readFileSync(path.join(root, 'src/main/provider-capture-preload.cjs'), 'utf8');
+  assert.ok(preload.includes('textarea[name="prompt-textarea"]'));
+  assert.ok(preload.includes('textarea#mobile-composer-prompt'));
+  assert.ok(preload.includes('#composer-submit-button'));
+  assert.ok(preload.includes('data-content-search-unit-key$=":assistant"'));
+  assert.ok(preload.includes('data-chatgpt-search-message-ids'));
+});
+
+test('DeepSeek current composer and send controls are supported', () => {
+  const preload = fs.readFileSync(path.join(root, 'src/main/provider-capture-preload.cjs'), 'utf8');
+  assert.ok(preload.includes("'#chat-input'"));
+  assert.ok(preload.includes("'button[aria-label=\"Send message\"]'"));
+  assert.ok(preload.includes("'[data-testid=\"send-button\"]'"));
+});

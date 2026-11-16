@@ -22,6 +22,8 @@ const { ipcRenderer } = require('electron');
 
   const selectors = {
     chatgpt: [
+      'main [data-app-action-timeline-scroll][role="region"] [data-content-search-unit-key$=":assistant"]',
+      'main [data-app-action-timeline-scroll][role="region"] [data-chatgpt-search-unit-key$=":assistant"]',
       'main [data-message-author-role="assistant"] .markdown',
       'main [data-message-author-role="assistant"] .prose',
       'main [data-message-author-role="assistant"] [data-message-content]',
@@ -41,8 +43,11 @@ const { ipcRenderer } = require('electron');
       '[data-testid="chat-message"]',
     ],
     deepseek: [
+      '[data-message-author-role="assistant"] .ds-markdown',
       '.ds-markdown',
       '[data-message-author-role="assistant"]',
+      '[class*="AssistantMessage"]',
+      '[class*="markdown-body"]',
     ],
   };
 
@@ -50,8 +55,8 @@ const { ipcRenderer } = require('electron');
     chatgpt: [
       'button[data-testid="stop-button"]',
       '[data-testid*="stop-generating"]',
-      'button[aria-label*="Stop generating" i]',
-      'button[aria-label*="Stop response" i]',
+      'button[aria-label*="Stop" i]',
+      'button[title*="Stop" i]',
     ],
     claude: [
       'button[data-testid*="stop"]',
@@ -61,8 +66,9 @@ const { ipcRenderer } = require('electron');
     deepseek: [
       'button[data-testid*="stop"]',
       '[class*="stop-generating"]',
-      'button[aria-label*="Stop generating" i]',
-      'button[aria-label*="Stop response" i]',
+      'button[aria-label*="Stop" i]',
+      '[role="button"][aria-label*="Stop" i]',
+      'button[title*="Stop" i]',
     ],
   };
 
@@ -261,6 +267,9 @@ const { ipcRenderer } = require('electron');
   }
 
   function stableMessageId(element) {
+    const chatGptMessageIds = element.getAttribute('data-chatgpt-search-message-ids');
+    if (chatGptMessageIds) return String(chatGptMessageIds).trim().slice(0, 200);
+
     const direct = element.getAttribute('data-message-id') || element.id;
     if (direct && direct.length > 3) return String(direct).slice(0, 200);
 
@@ -430,6 +439,8 @@ const { ipcRenderer } = require('electron');
     const composerSelectors = provider === 'chatgpt'
       ? [
         '#prompt-textarea',
+        'textarea[name="prompt-textarea"]',
+        'textarea#mobile-composer-prompt',
         'textarea[data-testid="prompt-textarea"]',
         '[contenteditable="true"][data-testid="prompt-textarea"]',
         '[contenteditable="true"][role="textbox"]',
@@ -441,8 +452,11 @@ const { ipcRenderer } = require('electron');
           'textarea',
         ]
         : [
+          '#chat-input',
+          'textarea[placeholder*="Send a message" i]',
+          'textarea[data-testid="chat-input"]',
+          'div[contenteditable="true"][role="textbox"]',
           'textarea',
-          '[contenteditable="true"][role="textbox"]',
           '[contenteditable="true"]',
         ];
 
@@ -451,148 +465,170 @@ const { ipcRenderer } = require('electron');
       try { composer = document.querySelector(selector); } catch { continue; }
       if (composer instanceof HTMLElement && composer.isConnected
         && composer.getClientRects().length > 0
-        && composer.getAttribute('aria-disabled') !== 'true') return composer;
+        && composer.getAttribute('aria-disabled') !== 'true'
+        && composer.getAttribute('disabled') === null) return composer;
     }
     return null;
   }
 
-  function insertTextIntoComposer(text, notify = true) {
-    const composer = findComposer();
-    if (!composer) {
-      const error = 'The provider page has not mounted a usable prompt composer yet.';
-      if (notify) ipcRenderer.send('willai:context-insert-result', { ok: false, error });
-      return { ok: false, error };
-    }
-
-    composer.focus();
-    const before = composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement
-      ? composer.value
-      : String(composer.innerText || composer.textContent || '');
-
-    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
-      const start = composer.selectionStart ?? composer.value.length;
-      const end = composer.selectionEnd ?? composer.value.length;
-      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(composer), 'value')?.set;
-      if (!setter) {
-        const error = 'The provider composer does not expose a writable text value.';
-        if (notify) ipcRenderer.send('willai:context-insert-result', { ok: false, error });
-        return { ok: false, error };
-      }
-      setter.call(composer, composer.value.slice(0, start) + text + composer.value.slice(end));
-      composer.setSelectionRange(start + text.length, start + text.length);
-      composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-    } else {
-      const inserted = document.execCommand('insertText', false, text);
-      const afterCommand = String(composer.innerText || composer.textContent || '');
-      if (!inserted || afterCommand === before) {
-        const selection = window.getSelection();
-        if (!selection) {
-          const error = 'Could not access the provider text selection.';
-          if (notify) ipcRenderer.send('willai:context-insert-result', { ok: false, error });
-          return { ok: false, error };
-        }
-        const range = document.createRange();
-        range.selectNodeContents(composer);
-        range.collapse(false);
-        selection.removeAllRanges();
-        selection.addRange(range);
-        range.insertNode(document.createTextNode(text));
-        range.collapse(false);
-        selection.removeAllRanges();
-        selection.addRange(range);
-        composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-      }
-    }
-
-    const after = composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement
-      ? composer.value
-      : String(composer.innerText || composer.textContent || '');
-    if (after === before) {
-      const error = 'The provider composer did not accept the inserted prompt text.';
-      if (notify) ipcRenderer.send('willai:context-insert-result', { ok: false, error });
-      return { ok: false, error };
-    }
-
-    if (notify) ipcRenderer.send('willai:context-insert-result', { ok: true });
-    return { ok: true, composer };
+  function readComposerText(composer) {
+    if (!composer) return '';
+    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) return composer.value || '';
+    return String(composer.innerText || composer.textContent || '');
   }
 
-  function findSendButton() {
+  function prepareComposerForNativeInsert(composer) {
+    composer.focus();
+    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
+      if (composer.value.trim()) {
+        return { ok: false, error: 'The provider composer already contains unsent text. Clear it before sending a new WillAI-C request.' };
+      }
+      composer.setSelectionRange(0, 0);
+      return { ok: true };
+    }
+
+    if (readComposerText(composer).trim()) {
+      return { ok: false, error: 'The provider composer already contains unsent text. Clear it before sending a new WillAI-C request.' };
+    }
+    const selection = window.getSelection();
+    if (!selection) return { ok: false, error: 'Could not focus the provider composer selection.' };
+    const range = document.createRange();
+    range.selectNodeContents(composer);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return { ok: true };
+  }
+
+  function normaliseComposerText(value) {
+    return String(value || '').replace(/\\u00a0/g, ' ').replace(/\\r/g, '').trim();
+  }
+
+  function findSendButton(composer) {
+    if (!composer) return null;
     const selectors = provider === 'chatgpt'
       ? [
+        '#composer-submit-button',
+        'button#composer-submit-button',
         'button[data-testid="send-button"]',
         'button[aria-label="Send prompt"]',
         'button[aria-label="Send message"]',
-        'button[aria-label*="Send" i]',
-        'form button[type="submit"]',
+        'button[aria-label="Send"]',
+        'button[type="submit"]',
       ]
       : provider === 'claude'
         ? [
           'button[data-testid="send-button"]',
           'button[aria-label="Send message"]',
-          'button[aria-label*="Send" i]',
-          'form button[type="submit"]',
+          'button[aria-label="Send"]',
+          'button[type="submit"]',
         ]
         : [
-          'button[data-testid="send-button"]',
-          'button[aria-label="Send"]',
-          'button[aria-label*="Send" i]',
-          '[role="button"][aria-label*="Send" i]',
-          'form button[type="submit"]',
+          'button[aria-label="Send message"]',
+          '[data-testid="send-button"]',
+          'button[type="submit"]',
+          '[role="button"][aria-label="Send message"]',
+          '[role="button"][aria-label="Send"]',
         ];
-    for (const selector of selectors) {
-      let button = null;
-      try { button = document.querySelector(selector); } catch { continue; }
-      if (!button || button.getClientRects().length === 0) continue;
-      if (button.disabled || button.getAttribute('aria-disabled') === 'true') continue;
-      return button;
+
+    const form = composer.closest('form');
+    const shell = composer.closest('[data-testid*="composer"], [class*="composer"], [class*="Composer"]');
+    const fallbackScope = shell || form || composer.parentElement?.parentElement?.parentElement || composer.parentElement;
+    const scopes = [form, shell, fallbackScope].filter((scope, index, all) => scope && all.indexOf(scope) === index);
+
+    for (const scope of scopes) {
+      for (const selector of selectors) {
+        let buttons = [];
+        try { buttons = Array.from(scope.querySelectorAll(selector)); } catch { continue; }
+        const button = buttons.find((candidate) => candidate instanceof HTMLElement
+          && candidate.getClientRects().length > 0
+          && !candidate.disabled
+          && candidate.getAttribute('aria-disabled') !== 'true');
+        if (button) return button;
+      }
     }
     return null;
   }
 
   const pendingSubmissions = new Set();
+  const submissionComposers = new Map();
+
   function reportPromptSubmission(requestId, ok, error) {
     pendingSubmissions.delete(requestId);
+    submissionComposers.delete(requestId);
     ipcRenderer.send('willai:prompt-submit-result', { requestId, provider, ok, ...(error ? { error } : {}) });
+  }
+
+  function verifyPromptStarted(requestId, attempt = 0) {
+    if (!pendingSubmissions.has(requestId)) return;
+    const composer = submissionComposers.get(requestId);
+    const text = normaliseComposerText(readComposerText(composer));
+    if (!text || isProviderGenerating()) {
+      reportPromptSubmission(requestId, true);
+      return;
+    }
+    if (attempt >= 20) {
+      reportPromptSubmission(requestId, false, 'The provider send control was activated, but the page did not confirm that generation started. Check the open provider tab before retrying.');
+      return;
+    }
+    setTimeout(() => verifyPromptStarted(requestId, attempt + 1), 250);
   }
 
   function waitForSendControl(requestId, attempt = 0) {
     if (!pendingSubmissions.has(requestId)) return;
-    const button = findSendButton();
+    const composer = submissionComposers.get(requestId);
+    const button = findSendButton(composer);
     if (button) {
       try {
         button.click();
-        reportPromptSubmission(requestId, true);
+        setTimeout(() => verifyPromptStarted(requestId), 250);
       } catch (error) {
         reportPromptSubmission(requestId, false, error instanceof Error ? error.message : 'The send button could not be activated.');
       }
       return;
     }
     if (attempt >= 49) {
-      reportPromptSubmission(requestId, false, 'The prompt was inserted, but the provider send control did not become available. Open Browser to inspect the composer and send manually.');
+      reportPromptSubmission(requestId, false, 'The prompt was inserted, but the provider composer did not expose an enabled send control. Open Browser to inspect the provider page.');
       return;
     }
     setTimeout(() => waitForSendControl(requestId, attempt + 1), 200);
   }
 
-  function waitForComposerAndSubmit(requestId, text, attempt = 0) {
+  function requestNativePromptInsert(requestId, attempt = 0) {
     if (!pendingSubmissions.has(requestId)) return;
     const composer = findComposer();
     if (composer) {
-      const inserted = insertTextIntoComposer(text, false);
-      if (!inserted.ok) {
-        reportPromptSubmission(requestId, false, inserted.error);
+      const prepared = prepareComposerForNativeInsert(composer);
+      if (!prepared.ok) {
+        reportPromptSubmission(requestId, false, prepared.error);
         return;
       }
-      setTimeout(() => waitForSendControl(requestId), 250);
+      submissionComposers.set(requestId, composer);
+      ipcRenderer.send('willai:provider-composer-ready', { requestId, provider });
       return;
     }
     if (attempt >= 59) {
       reportPromptSubmission(requestId, false, 'The provider page loaded, but its prompt composer did not become available. Open Browser to inspect the signed-in provider page.');
       return;
     }
-    setTimeout(() => waitForComposerAndSubmit(requestId, text, attempt + 1), 200);
+    setTimeout(() => requestNativePromptInsert(requestId, attempt + 1), 200);
   }
+
+  ipcRenderer.on('willai:provider-text-inserted', (_event, result) => {
+    const requestId = String(result?.requestId || '');
+    if (!requestId || !pendingSubmissions.has(requestId)) return;
+    if (!result.ok) {
+      reportPromptSubmission(requestId, false, String(result.error || 'Electron could not insert text into the provider composer.'));
+      return;
+    }
+    const composer = submissionComposers.get(requestId);
+    const actual = normaliseComposerText(readComposerText(composer));
+    if (!actual) {
+      reportPromptSubmission(requestId, false, 'Electron reported text insertion, but the provider composer remained empty.');
+      return;
+    }
+    setTimeout(() => waitForSendControl(requestId), 250);
+  });
 
   ipcRenderer.on('willai:send-prompt', (_event, request) => {
     const requestId = String(request?.requestId || '');
@@ -602,8 +638,10 @@ const { ipcRenderer } = require('electron');
       return;
     }
     pendingSubmissions.add(requestId);
-    waitForComposerAndSubmit(requestId, String(request.content || ''));
+    requestNativePromptInsert(requestId);
   });
+
+
 
   ipcRenderer.on('willai:insert-context', (_event, context) => {
     const text = '--- WillAI-C shared context ---\n'

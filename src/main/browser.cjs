@@ -343,6 +343,8 @@ class BrowserController {
         this.pendingPromptSubmissions.set(requestId, {
           tabId: tab.id,
           provider: selectedProvider,
+          content: prompt,
+          inserting: false,
           timer,
           resolve,
         });
@@ -357,6 +359,35 @@ class BrowserController {
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : 'Could not prepare the selected provider.' };
     }
+  }
+
+  handleProviderComposerReady(webContents, payload) {
+    const tab = this.getTabByWebContents(webContents);
+    const requestId = String(payload?.requestId || '');
+    const pending = this.pendingPromptSubmissions.get(requestId);
+    if (!tab || !pending || pending.tabId !== tab.id
+      || pending.provider !== payload?.provider || pending.inserting
+      || tab.view.webContents.isDestroyed()) return false;
+
+    let pageUrl;
+    try { pageUrl = new URL(webContents.getURL()); } catch { return false; }
+    if (pageUrl.protocol !== 'https:' || providerFromUrl(pageUrl.href) !== pending.provider) return false;
+
+    pending.inserting = true;
+    Promise.resolve(webContents.insertText(pending.content)).then(() => {
+      const current = this.pendingPromptSubmissions.get(requestId);
+      if (current !== pending || webContents.isDestroyed()) return;
+      webContents.send('willai:provider-text-inserted', { requestId, ok: true });
+    }).catch((error) => {
+      const current = this.pendingPromptSubmissions.get(requestId);
+      if (current !== pending || webContents.isDestroyed()) return;
+      webContents.send('willai:provider-text-inserted', {
+        requestId,
+        ok: false,
+        error: error instanceof Error ? error.message : 'Electron could not insert text into the provider composer.',
+      });
+    });
+    return true;
   }
 
   handlePromptSubmitResult(webContents, payload) {

@@ -291,6 +291,10 @@ function registerRendererIpc() {
     browser?.handleProviderStatus(event.sender, payload || {});
   });
 
+  ipcMain.on('willai:provider-composer-ready', (event, payload) => {
+    browser?.handleProviderComposerReady(event.sender, payload || {});
+  });
+
   ipcMain.on('willai:prompt-submit-result', (event, payload) => {
     browser?.handlePromptSubmitResult(event.sender, payload || {});
   });
