@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const Module = require('node:module');
+const vm = require('node:vm');
 const root = path.join(__dirname, '..');
 
 test('background request dispatch waits for the provider adapter before posting the prompt', () => {
@@ -84,15 +86,19 @@ test('capture status panel wraps its explicit extraction action and guidance', (
 });
 
 
-test('provider prompt insertion uses Electron native text input after focusing the composer', () => {
+test('hidden provider tabs are not timer-throttled and use CDP-first input', () => {
   const browser = fs.readFileSync(path.join(root, 'src/main/browser.cjs'), 'utf8');
   const main = fs.readFileSync(path.join(root, 'src/main/index.cjs'), 'utf8');
   const preload = fs.readFileSync(path.join(root, 'src/main/provider-capture-preload.cjs'), 'utf8');
-  assert.ok(browser.includes('webContents.insertText(pending.content)'));
+  assert.match(browser, /backgroundThrottling:\s*false/);
+  assert.ok(browser.includes("debuggerApi.sendCommand('Input.insertText'"));
+  assert.ok(browser.includes('webContents.insertText(text)')); // compatibility fallback
   assert.ok(browser.includes('handleProviderComposerReady'));
   assert.ok(main.includes("ipcMain.on('willai:provider-composer-ready'"));
   assert.ok(preload.includes("ipcRenderer.send('willai:provider-composer-ready'"));
   assert.ok(preload.includes("ipcRenderer.on('willai:provider-text-inserted'"));
+  assert.match(browser, /timeoutMs = 35000/);
+  assert.match(browser, /}, 60000\);/);
 });
 
 test('ChatGPT current assistant message and composer selectors are supported', () => {
@@ -109,4 +115,235 @@ test('DeepSeek current composer and send controls are supported', () => {
   assert.ok(preload.includes("'#chat-input'"));
   assert.ok(preload.includes("'button[aria-label=\"Send message\"]'"));
   assert.ok(preload.includes("'[data-testid=\"send-button\"]'"));
+});
+
+
+// Load BrowserController with a minimal Electron module so its CDP insertion
+// helper can be exercised without starting an actual desktop window.
+function loadBrowserControllerForTest() {
+  const modulePath = require.resolve('../src/main/browser.cjs');
+  const previous = require.cache[modulePath];
+  delete require.cache[modulePath];
+  const originalLoad = Module._load;
+  const fakeSession = {
+    setPermissionRequestHandler() {},
+    setPermissionCheckHandler() {},
+    on() {},
+  };
+  Module._load = function(request, parent, isMain) {
+    if (request === 'electron') {
+      return {
+        WebContentsView: class WebContentsView {},
+        session: { fromPartition: () => fakeSession },
+        dialog: {},
+        app: {},
+      };
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+  try {
+    return require(modulePath).BrowserController;
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[modulePath];
+    if (previous) require.cache[modulePath] = previous;
+  }
+}
+
+test('CDP inserts text into the hidden provider target without taking OS focus', async () => {
+  const BrowserController = loadBrowserControllerForTest();
+  let attached = false;
+  let focused = false;
+  let fallbackCalls = 0;
+  const commands = [];
+  const webContents = {
+    debugger: {
+      isAttached: () => attached,
+      attach: (version) => { assert.equal(version, '1.3'); attached = true; },
+      sendCommand: async (method, params) => { commands.push({ method, params }); },
+      detach: () => { attached = false; },
+    },
+    isDestroyed: () => false,
+    focus: () => { focused = true; },
+    insertText: async () => { fallbackCalls += 1; },
+  };
+
+  const text = 'A request with multiple lines\nsecond line';
+  const method = await BrowserController.prototype.insertTextIntoProvider.call({}, webContents, text);
+
+  assert.equal(method, 'cdp');
+  assert.deepEqual(commands, [{ method: 'Input.insertText', params: { text } }]);
+  assert.equal(focused, false);
+  assert.equal(fallbackCalls, 0);
+  assert.equal(attached, false);
+});
+
+test('CDP insertion falls back to Electron native insertion only when CDP fails', async () => {
+  const BrowserController = loadBrowserControllerForTest();
+  let attached = false;
+  let focused = false;
+  let inserted = '';
+  const webContents = {
+    debugger: {
+      isAttached: () => attached,
+      attach: () => { attached = true; },
+      sendCommand: async () => { throw new Error('CDP unavailable'); },
+      detach: () => { attached = false; },
+    },
+    isDestroyed: () => false,
+    focus: () => { focused = true; },
+    insertText: async (text) => { inserted = text; },
+  };
+
+  const method = await BrowserController.prototype.insertTextIntoProvider.call({}, webContents, 'fallback text');
+
+  assert.equal(method, 'electron');
+  assert.equal(inserted, 'fallback text');
+  assert.equal(focused, true);
+  assert.equal(attached, false);
+});
+
+// Execute the isolated provider preload against a tiny DOM fixture. This tests
+// the event bridge and, importantly, verifies the full prompt before clicking Send.
+function createProviderPreloadHarness() {
+  const source = fs.readFileSync(path.join(root, 'src/main/provider-capture-preload.cjs'), 'utf8');
+  const listeners = new Map();
+  const sent = [];
+  const queried = [];
+  let clickCount = 0;
+
+  class FakeElement {
+    constructor() {
+      this.isConnected = true;
+      this.disabled = false;
+      this.innerText = '';
+      this.textContent = '';
+      this.attributes = {};
+    }
+    focus() {}
+    getClientRects() { return [1]; }
+    getAttribute(name) { return this.attributes[name] ?? null; }
+    matches() { return false; }
+    closest(selector) { return selector === 'form' ? form : null; }
+    querySelector() { return null; }
+    querySelectorAll() { return []; }
+  }
+  class FakeTextArea extends FakeElement {}
+  class FakeInput extends FakeElement {}
+  class FakeButton extends FakeElement {
+    click() {
+      clickCount += 1;
+      composer.innerText = '';
+      composer.textContent = '';
+    }
+  }
+
+  const composer = new FakeElement();
+  const button = new FakeButton();
+  const form = {
+    requestSubmit() {
+      clickCount += 1;
+      composer.innerText = '';
+      composer.textContent = '';
+    },
+    querySelectorAll(selector) {
+      return selector === 'button[data-testid="send-button"]' ? [button] : [];
+    },
+  };
+  const selection = { removeAllRanges() {}, addRange() {} };
+  const document = {
+    readyState: 'complete',
+    documentElement: {},
+    querySelector(selector) {
+      queried.push(selector);
+      return selector === 'form[data-chatgpt-composer] [data-composer-markdown][contenteditable="true"][role="textbox"]'
+        ? composer : null;
+    },
+    querySelectorAll() { return []; },
+    createRange() {
+      return { selectNodeContents() {}, collapse() {} };
+    },
+  };
+  const ipcRenderer = {
+    on(channel, callback) { listeners.set(channel, callback); },
+    send(channel, payload) { sent.push({ channel, payload }); },
+  };
+  class FakeMutationObserver {
+    observe() {}
+    disconnect() {}
+  }
+  const window = {
+    crypto: { randomUUID: () => 'capture-fixture-id' },
+    getSelection: () => selection,
+  };
+  const context = {
+    require: (name) => {
+      assert.equal(name, 'electron');
+      return { ipcRenderer };
+    },
+    ipcRenderer,
+    location: { hostname: 'chatgpt.com', href: 'https://chatgpt.com/' },
+    document,
+    window,
+    HTMLElement: FakeElement,
+    HTMLTextAreaElement: FakeTextArea,
+    HTMLInputElement: FakeInput,
+    Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 },
+    MutationObserver: FakeMutationObserver,
+    setTimeout,
+    clearTimeout,
+    Date,
+    String,
+    Array,
+    Map,
+    Set,
+    WeakMap,
+    Promise,
+    RegExp,
+    Math,
+  };
+  vm.runInNewContext(source, context, { filename: 'provider-capture-preload.cjs' });
+
+  function emit(channel, payload) {
+    const callback = listeners.get(channel);
+    assert.ok(callback, 'listener was registered for ' + channel);
+    callback({}, payload);
+  }
+  function results(channel) {
+    return sent.filter((item) => item.channel === channel).map((item) => item.payload);
+  }
+  return { composer, queried, emit, results, get clickCount() { return clickCount; } };
+}
+
+test('provider preload refuses to send a partial prompt from the composer', () => {
+  const harness = createProviderPreloadHarness();
+  const requestId = 'partial-prompt';
+  const expected = 'A complete prompt that must not be truncated';
+  harness.emit('willai:send-prompt', { requestId, provider: 'chatgpt', content: expected });
+  assert.ok(harness.queried.includes('form[data-chatgpt-composer] [data-composer-markdown][contenteditable="true"][role="textbox"]'));
+  assert.equal(harness.results('willai:provider-composer-ready').length, 1);
+
+  harness.composer.innerText = 'A complete prompt';
+  harness.composer.textContent = 'A complete prompt';
+  harness.emit('willai:provider-text-inserted', { requestId, ok: true, method: 'cdp' });
+
+  const result = harness.results('willai:prompt-submit-result').at(-1);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /complete prompt/i);
+  assert.equal(harness.clickCount, 0);
+});
+
+test('provider preload submits only after the complete prompt is present', async () => {
+  const harness = createProviderPreloadHarness();
+  const requestId = 'complete-prompt';
+  const expected = 'Full prompt with\u00a0space\r\nsecond line';
+  harness.emit('willai:send-prompt', { requestId, provider: 'chatgpt', content: expected });
+  harness.composer.innerText = 'Full prompt with space\nsecond line';
+  harness.composer.textContent = harness.composer.innerText;
+  harness.emit('willai:provider-text-inserted', { requestId, ok: true, method: 'cdp' });
+
+  await new Promise((resolve) => setTimeout(resolve, 650));
+  const result = harness.results('willai:prompt-submit-result').at(-1);
+  assert.equal(result.ok, true);
+  assert.equal(harness.clickCount, 1);
 });
