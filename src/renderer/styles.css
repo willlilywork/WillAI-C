@@ -714,3 +714,25 @@ body, .willai-app { background: var(--bg); color: var(--text); }
 .capture-rescan-message { color:#c5d8c8; }
 
 .capture-status-panel { flex-wrap:wrap; }
+
+
+/* 0.3.0 — workspace organization */
+.folder-filter-row.drop-target {
+  border: 1px solid #8db69a;
+  border-radius: 5px;
+  background: rgba(141, 182, 154, .14);
+}
+.folder-filter-row[draggable="true"] { cursor: grab; }
+.folder-filter-row[draggable="true"]:active { cursor: grabbing; }
+.conversation-link[draggable="true"] { cursor: grab; }
+.bulk-actions select {
+  min-width: 0;
+  max-width: 105px;
+  height: 22px;
+  padding: 2px 4px;
+  border: 1px solid #526152;
+  border-radius: 4px;
+  background: #1a251f;
+  color: #cad8ca;
+  font-size: 8px;
+}
