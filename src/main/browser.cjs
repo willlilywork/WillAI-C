@@ -165,6 +165,9 @@ class BrowserController {
         sandbox: true,
         webSecurity: true,
         allowRunningInsecureContent: false,
+        // Provider pages continue processing while their WebContentsView is
+        // hidden behind the workspace. Keep capture/retry timers unthrottled.
+        backgroundThrottling: false,
       },
     });
 
@@ -285,7 +288,7 @@ class BrowserController {
     this.getActiveTab()?.view.webContents.reload();
   }
 
-  waitForProviderAdapter(tab, timeoutMs = 25000) {
+  waitForProviderAdapter(tab, timeoutMs = 35000) {
     const readyStates = new Set(['ready', 'no-message-elements', 'message-elements-found', 'response-sent', 'capture-error']);
     if (tab.captureStatus && readyStates.has(tab.captureStatus.state)) return Promise.resolve();
     if (!tab.view || tab.view.webContents.isDestroyed()) return Promise.reject(new Error('The provider tab was closed before it became ready.'));
@@ -339,7 +342,7 @@ class BrowserController {
         const timer = setTimeout(() => {
           this.pendingPromptSubmissions.delete(requestId);
           resolve({ ok: false, error: 'The provider did not confirm that the prompt was sent. Open Browser to review the composer.' });
-        }, 25000);
+        }, 60000);
         this.pendingPromptSubmissions.set(requestId, {
           tabId: tab.id,
           provider: selectedProvider,
@@ -361,6 +364,38 @@ class BrowserController {
     }
   }
 
+  async insertTextIntoProvider(webContents, text) {
+    const debuggerApi = webContents.debugger;
+    let attachedHere = false;
+    let cdpError = null;
+    try {
+      if (!debuggerApi.isAttached()) {
+        debuggerApi.attach('1.3');
+        attachedHere = true;
+      }
+      await debuggerApi.sendCommand('Input.insertText', { text });
+      return 'cdp';
+    } catch (error) {
+      cdpError = error;
+      if (webContents.isDestroyed()) throw error;
+      try {
+        // Compatibility fallback for builds where CDP cannot attach.
+        // This path depends on WebContents focus and is intentionally secondary.
+        webContents.focus();
+        await webContents.insertText(text);
+        return 'electron';
+      } catch (fallbackError) {
+        const first = cdpError instanceof Error ? cdpError.message : String(cdpError || 'CDP input failed');
+        const second = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+        throw new Error('Provider text insertion failed. CDP: ' + first + '. Electron fallback: ' + second);
+      }
+    } finally {
+      if (attachedHere && debuggerApi.isAttached()) {
+        try { debuggerApi.detach(); } catch {}
+      }
+    }
+  }
+
   handleProviderComposerReady(webContents, payload) {
     const tab = this.getTabByWebContents(webContents);
     const requestId = String(payload?.requestId || '');
@@ -374,13 +409,10 @@ class BrowserController {
     if (pageUrl.protocol !== 'https:' || providerFromUrl(pageUrl.href) !== pending.provider) return false;
 
     pending.inserting = true;
-    // The page-side composer has been focused by the preload. Focus the
-    // provider WebContents before using Electron's trusted text insertion.
-    try { webContents.focus(); } catch {}
-    Promise.resolve(webContents.insertText(pending.content)).then(() => {
+    this.insertTextIntoProvider(webContents, pending.content).then((method) => {
       const current = this.pendingPromptSubmissions.get(requestId);
       if (current !== pending || webContents.isDestroyed()) return;
-      webContents.send('willai:provider-text-inserted', { requestId, ok: true });
+      webContents.send('willai:provider-text-inserted', { requestId, ok: true, method });
     }).catch((error) => {
       const current = this.pendingPromptSubmissions.get(requestId);
       if (current !== pending || webContents.isDestroyed()) return;
