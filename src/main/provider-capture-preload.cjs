@@ -119,7 +119,7 @@ const { ipcRenderer } = require('electron');
       + '[class*="sr-only"], [class*="visually-hidden"], '
       + '[data-testid*="copy"], [data-testid*="feedback"], '
       + '[data-testid*="toolbar"], [role="toolbar"]',
-    ) || Boolean(element.closest('[aria-hidden="true"], [class*="sr-only"], [class*="visually-hidden"], [data-testid*="toolbar"]'));
+    ) || Boolean(element.closest('[aria-hidden="true"], [class~="sr-only"], [class~="visually-hidden"], [data-testid*="toolbar"]'));
   }
 
   function inlineMarkdown(node) {
@@ -557,7 +557,7 @@ const { ipcRenderer } = require('electron');
   }
 
   function normaliseComposerText(value) {
-    return String(value || '').replace(/\\u00a0/g, ' ').replace(/\\r/g, '').trim();
+    return String(value || '').replace(/\u00a0/g, ' ').replace(/\r/g, '').trim();
   }
 
   function findSendButton(composer) {
