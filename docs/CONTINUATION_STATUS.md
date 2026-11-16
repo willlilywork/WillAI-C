@@ -7,11 +7,11 @@
 ## Branch and acceptance policy
 
 - `main` is the product acceptance branch. The success or failure of the application is judged from what is built and tested from `main`.
-- The integration branch is `rebuild/desktop-first-foundation`. At this snapshot it contains the full rebuild and WillAI-C 0.3.0 workspace-organization changes.
-- PR #1 moves the full rebuild from `rebuild/desktop-first-foundation` to `main`. It has been marked ready for review; do not rely on the older draft wording in its initial description.
-- PR #10 (0.3.0 folder organization and bulk actions) has been squash-merged into the integration branch as `7752ec64aef46ad869d7f8b89047779aedd81c72`.
+- The integration branch is `rebuild/desktop-first-foundation`. It contains the full rebuild and WillAI-C 0.3.0 workspace-organization changes; `main` now includes them.
+- PR #1 was merged into `main` on 2026-11-15. Merge commit: `2004144618e712a3548038e118eaa1499ddc940d`.
+- PR #10 (0.3.0 folder organization and bulk actions) was squash-merged into the integration branch as `7752ec64aef46ad869d7f8b89047779aedd81c72` and is included in `main` through PR #1.
 - PR #9 (background provider submission) and PR #8 (SQLite/FTS5) are already included in the integration branch.
-- Do not create another parallel implementation from the old initial `main` snapshot. Continue from `main` after this integration is complete.
+- Do not create another parallel implementation from the old initial snapshot. Continue from `main`, which is the acceptance and source-of-truth branch. The integration branch is now one merge commit behind `main`.
 
 ## Product and architecture — preserve these decisions
 
@@ -68,14 +68,15 @@ Read `docs/ARCHITECTURE.md` for module/security boundaries and `docs/PRODUCT_SCO
 
 ## Verification state
 
-### Confirmed on PR #10 head `e9284bdb6060c455c69600dc62335ac32afd2175`
-GitHub Actions run #106 completed successfully:
+GitHub Actions run #106 passed on PR #10 head `e9284bdb6060c455c69600dc62335ac32afd2175`:
 - `npm test`
 - `npm run typecheck`
 - `npm run build`
 - Electron main/preload syntax checks
 
-PR #10 was then squash-merged into `rebuild/desktop-first-foundation` as `7752ec64aef46ad869d7f8b89047779aedd81c72`. A post-merge CI run was started on that commit; check its result in GitHub before treating the integration-branch push as verified.
+Post-merge run #108 passed on `7752ec64aef46ad869d7f8b89047779aedd81c72`. Run #110 passed on the subsequent integration-branch documentation update `6035de7eb1b0634f3b2f8d68e6d037074a9fcc53`.
+
+PR #1 integrated the complete rebuild into `main` with merge commit `2004144618e712a3548038e118eaa1499ddc940d`. At the time of this update, the GitHub integration did not expose the push-triggered Actions run for this merge commit, so the `main` push result must be checked before recording main-branch CI as passed. The preceding integration-branch code and build checks passed; this does not substitute for the main acceptance run.
 
 ### Still requires real runtime verification
 These are not proven by tests or packaging alone:
