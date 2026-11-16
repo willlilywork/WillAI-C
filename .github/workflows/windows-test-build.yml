@@ -100,12 +100,12 @@ jobs:
               target_commitish: context.sha,
               name: 'WillAI-C Windows Test Build #' + context.runNumber,
               body: [
-                'WillAI-C 0.3.0 workspace-organization build from ' + context.ref + '.',
+                'WillAI-C 0.3.1 provider reliability build from ' + context.ref + '.',
                 '',
                 'Commit: ' + context.sha,
                 '',
-                '- Windows x64 NSIS installer. Version 0.3.0.',
-                '- Includes folder drag-and-drop, nested folder moves, editable folder styling, and bulk conversation actions.',
+                '- Windows x64 NSIS installer. Version 0.3.1.',
+                '- Includes provider background processing, CDP-first prompt insertion, complete-prompt verification, and updated ChatGPT/Claude response adapters.',
                 '- Unsigned test build; Windows may display a SmartScreen warning.',
                 '- For evaluation only. Do not treat this as a production release.',
                 '- Main is the acceptance branch; verify the installed application before treating this as a release.'
