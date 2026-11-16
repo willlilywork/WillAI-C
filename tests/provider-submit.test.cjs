@@ -24,7 +24,9 @@ test('provider page waits for its composer and enabled send control', () => {
   const preload = fs.readFileSync(path.join(root, 'src/main/provider-capture-preload.cjs'), 'utf8');
   assert.ok(preload.includes('requestNativePromptInsert'));
   assert.ok(preload.includes('button[data-testid="send-button"]'));
-  assert.ok(preload.includes('button[aria-label*="Send" i]'));
+  assert.ok(preload.includes('button[aria-label="Send message"]'));
+  assert.ok(preload.includes('#composer-submit-button'));
+  assert.ok(preload.includes('button[type="submit"]'));
   assert.ok(preload.includes('button.click()'));
   assert.ok(preload.includes('findSendButton(composer)'));
   assert.ok(preload.includes('willai:prompt-submit-result'));
